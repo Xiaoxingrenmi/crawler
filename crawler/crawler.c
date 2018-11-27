@@ -2,6 +2,7 @@
 // Simple web crawler
 //   by BOT Man & ZhangHan, 2018
 
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,65 +10,47 @@
 #include "bloom_filter.h"
 #include "html_parser.h"
 #include "http_client.h"
-#include "link_list.h"
 #include "string_helper.h"
 
-#define DEBUG
+void RequestCallback(const char* res, const char* html, void* context);
 
-void AddUrlMap(const char* url, void* context) {
-  if (!url || !context)
-    return;
-  ListNode* task_queue = (ListNode*)context;
+void ProcessUrl(const char* url, void* context) {
+  assert(url);
+  const char* src_url = (const char*)context;
 
+  // ignore |url| in graph
   if (BloomFilterTest(url))
     return;
 
-#ifdef DEBUG
-  printf("> %s\n", url);
-#endif  // DEBUG
-
+  // add |url| to graph
   BloomFilterAdd(url);
-  LinkListPushBack(task_queue, CopyString(url));
-}
-
-void ParseUrlsInHtml(const char* res, const char* html, void* context) {
-  (void)(res);
-  if (!html || !context)
-    return;
-
-#ifdef DEBUG
-  printf("\nparsed urls:\n");
-#endif  // DEBUG
-
-  ParseAtagUrls(html, AddUrlMap, context);
-}
-
-void StartCrawlTask(const char* start_url) {
-  if (!start_url)
-    return;
-
-  ListNode* task_queue = CreateListNode(NULL);
-  if (!task_queue)
-    return;
-
-  BloomFilterAdd(start_url);
-  LinkListPushBack(task_queue, CopyString(start_url));
-
-  while (1) {
-    char* url = LinkListPop(task_queue);
-    if (!url)
-      break;
-
-#ifdef DEBUG
-    printf("\n------------------------\nrequested url:\n%s\n", url);
-#endif  // DEBUG
-
-    Request(url, ParseUrlsInHtml, task_queue);
-
-    free((void*)url);
+  if (src_url) {
+    // TODO: use graph to store links between urls
+    printf("%s -> %s\n", src_url, url);
   }
 
-  DeleteListNode(task_queue);
+  // use |url| as start node to crawl pages
+  // async call |RequestCallback|
+  Request(url, RequestCallback, CopyString(url));
+}
+
+void RequestCallback(const char* res, const char* html, void* context) {
+  (void)(res);
+  char* src_url = (char*)context;
+  if (!src_url) {
+    fprintf(stderr, "failed to fetch unknown_url\n");
+    return;
+  }
+
+  if (!html) {
+    fprintf(stderr, "failed to fetch %s\n", src_url);
+    free((void*)src_url);
+    return;
+  }
+
+  // sync call |ProcessUrl|
+  ParseAtagUrls(html, ProcessUrl, src_url);
+  free((void*)src_url);
 }
 
 int main(int argc, char* argv[]) {
@@ -76,11 +59,12 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  // use |start_url| to start crawl tasks
-  const char* start_url = argv[1];
-  StartCrawlTask(start_url);
+  InitLibEvent();
 
-  // check memory leaks
-  AssertNoListNode();
+  // use |argv[1]| to start crawl tasks
+  ProcessUrl(argv[1], NULL);
+
+  DispatchLibEvent();
+
   return 0;
 }
