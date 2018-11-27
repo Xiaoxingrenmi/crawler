@@ -37,6 +37,7 @@ Accept: text/html,application/xhtml+xml,application/xml\r\n\
 #define CONTENT_START "\r\n\r\n"
 
 #define URL_HTTP_SCHEME_START "http://"
+#define URL_HTTPS_SCHEME_START "https://"
 #define URL_PATH_START "/"
 
 char* ParseHost(const char* url) {
@@ -345,10 +346,19 @@ void DispatchLibEvent() {
 }
 
 void Request(const char* url, request_callback_fn callback, void* context) {
-  if (!url)
+  assert(url);
+
+  // ignore https url
+  if (strstr(url, URL_HTTPS_SCHEME_START)) {
+    callback(NULL, NULL, context);
     return;
+  }
 
   char* host = ParseHost(url);
+  if (!host) {
+    callback(NULL, NULL, context);
+    return;
+  }
 
   struct sockaddr_in sa = ConstructSockAddr(host, 80);
   evutil_socket_t fd = CreateSocket(&sa);

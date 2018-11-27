@@ -18,16 +18,17 @@ void ProcessUrl(const char* url, void* context) {
   assert(url);
   const char* src_url = (const char*)context;
 
-  // ignore |url| in graph
-  if (BloomFilterTest(url))
-    return;
-
-  // add |url| to graph
-  BloomFilterAdd(url);
   if (src_url) {
     // TODO: use graph to store links between urls
     printf("%s -> %s\n", src_url, url);
   }
+
+  // ignore |url| in url set
+  if (BloomFilterTest(url))
+    return;
+
+  // add |url| to url set
+  BloomFilterAdd(url);
 
   // use |url| as start node to crawl pages
   // async call |RequestCallback|
