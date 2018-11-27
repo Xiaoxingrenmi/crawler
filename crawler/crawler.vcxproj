@@ -83,7 +83,7 @@
     <ClCompile Include="http_client.c" />
     <ClCompile Include="http_socket.c" />
     <ClCompile Include="link_list.c" />
-    <ClCompile Include="main.c" />
+    <ClCompile Include="crawler.c" />
     <ClCompile Include="string_helper.c" />
   </ItemGroup>
   <ItemGroup>
