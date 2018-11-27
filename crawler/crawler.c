@@ -19,7 +19,6 @@ void AddUrlMap(const char* url, void* context) {
     return;
   ListNode* task_queue = (ListNode*)context;
 
-  // ignore url if already processed
   if (BloomFilterTest(url))
     return;
 
@@ -27,10 +26,7 @@ void AddUrlMap(const char* url, void* context) {
   printf("> %s\n", url);
 #endif  // DEBUG
 
-  // add url to bloom filter
   BloomFilterAdd(url);
-
-  // add url to task queue
   LinkListPushBack(task_queue, CopyString(url));
 }
 
@@ -54,10 +50,7 @@ void StartCrawlTask(const char* start_url) {
   if (!task_queue)
     return;
 
-  // add |start_url| to bloom filter first
   BloomFilterAdd(start_url);
-
-  // init |task_queue| with |start_url|
   LinkListPushBack(task_queue, CopyString(start_url));
 
   while (1) {
