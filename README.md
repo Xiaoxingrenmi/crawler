@@ -2,6 +2,12 @@
 
 > by BOT Man & ZhangHan, 2018
 
+## Features
+
+- use [libevent](https://libevent.org) to process async IO
+- use [bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) to implement url set
+- use [deterministic finite automaton](https://en.wikipedia.org/wiki/Deterministic_finite_automaton) to parse `<a>` tag urls inside html
+
 ## Requirements
 
 ``` bash
@@ -15,7 +21,7 @@ sudo apt-get install openssh-server g++ gdb gdbserver
 ## Compile
 
 ``` bash
-clang crawler/*.c -Wall -levent -o crawler.out
+clang++ crawler/*.c -Wall -levent -o crawler.out
 ```
 
 ## Test Website

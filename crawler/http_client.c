@@ -179,7 +179,7 @@ RequestState* CreateState(struct event_base* base,
                           const char* url,
                           request_callback_fn callback,
                           void* context) {
-  RequestState* ret = malloc(sizeof(RequestState));
+  RequestState* ret = (RequestState*)malloc(sizeof(RequestState));
   if (!ret)
     return NULL;
   memset(ret, 0, sizeof(RequestState));
@@ -266,14 +266,14 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
       size_t previous_len = 0;
       if (!state->recv_buffer) {
         // init |recv_buffer| with malloc
-        state->recv_buffer = malloc((size_t)result + 1);
+        state->recv_buffer = (char*)malloc((size_t)result + 1);
       } else {
         // update |previous_len|
         previous_len = strlen(state->recv_buffer);
 
         // realloc memory of |recv_buffer|
-        state->recv_buffer =
-            realloc(state->recv_buffer, previous_len + (size_t)result + 1);
+        state->recv_buffer = (char*)realloc(state->recv_buffer,
+                                            previous_len + (size_t)result + 1);
       }
       assert(state->recv_buffer);
 

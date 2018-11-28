@@ -81,7 +81,6 @@
     <ClCompile Include="bloom_filter.c" />
     <ClCompile Include="html_parser.c" />
     <ClCompile Include="http_client.c" />
-    <ClCompile Include="link_list.c" />
     <ClCompile Include="crawler.c" />
     <ClCompile Include="string_helper.c" />
   </ItemGroup>
@@ -89,7 +88,6 @@
     <ClInclude Include="bloom_filter.h" />
     <ClInclude Include="html_parser.h" />
     <ClInclude Include="http_client.h" />
-    <ClInclude Include="link_list.h" />
     <ClInclude Include="string_helper.h" />
   </ItemGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
