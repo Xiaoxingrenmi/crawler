@@ -334,17 +334,6 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
 
 struct event_base* g_event_base;
 
-void InitLibEvent() {
-  g_event_base = event_base_new();
-  assert(g_event_base);
-}
-
-void DispatchLibEvent() {
-  assert(g_event_base);
-  event_base_dispatch(g_event_base);
-  event_base_free(g_event_base);
-}
-
 void Request(const char* url, request_callback_fn callback, void* context) {
   assert(url);
 
@@ -370,6 +359,12 @@ void Request(const char* url, request_callback_fn callback, void* context) {
     return;
   }
 
+  if (!g_event_base)
+  {
+    g_event_base = event_base_new();
+    assert(g_event_base);
+  }
+
   RequestState* state = CreateState(g_event_base, fd, url, callback, context);
   if (!state) {
     EVUTIL_CLOSESOCKET(fd);
@@ -379,4 +374,10 @@ void Request(const char* url, request_callback_fn callback, void* context) {
 
   evutil_make_socket_nonblocking(fd);
   event_add(state->send_event, NULL);
+}
+
+void DispatchLibEvent() {
+  assert(g_event_base);
+  event_base_dispatch(g_event_base);
+  event_base_free(g_event_base);
 }
