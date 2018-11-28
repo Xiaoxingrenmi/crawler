@@ -124,7 +124,7 @@ void ParseAtagUrls(const char* html,
           char* url = CopyrString(url_beg, url_end);
           if (url) {
             callback(url, context);
-            free(url);
+            free((void*)url);
           }
 
           url_beg = NULL;

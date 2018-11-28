@@ -149,7 +149,7 @@ BloomFilter* CreateBloomFilter(size_t size) {
   ret->bits = malloc(bits_size);
   assert(ret->bits);
   if (!ret->bits) {
-    free(ret);
+    free((void*)ret);
     return NULL;
   }
   memset(ret->bits, 0, bits_size);
@@ -167,7 +167,7 @@ void FreeBloomFilter(BloomFilter* filter) {
   if (filter->bits)
     free(filter->bits);
 
-  free(filter);
+  free((void*)filter);
   --g_bloom_filter_count;
 }
 

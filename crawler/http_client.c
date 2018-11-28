@@ -89,55 +89,72 @@ char* ParseRequest(const char* url) {
   }
 }
 
-char* ConstructSendBuffer(const char* url) {
-  if (!url)
-    return NULL;
+uint16_t ParsePort(const char* url) {
+  // TODO: parse port
+  return 80;
+}
 
+char* ConstructSendBuffer(const char* url) {
+  char* ret = NULL;
   char* host = ParseHost(url);
   char* request = ParseRequest(url);
 
-  char buffer[SEND_BUFFER_SIZE];
-  sprintf(buffer, HTTP_GET_TEMPLATE, request, host);
-
-  free((void*)host);
-  free((void*)request);
-
-  return CopyString(buffer);
-}
-
-struct sockaddr_in ConstructSockAddr(const char* host, uint16_t port) {
-  struct sockaddr_in sa;
-  memset(&sa, 0, sizeof sa);
-
-  sa.sin_family = AF_INET;
-  sa.sin_port = htons(port);
-
-  // check |host| type (domain name or ip address)
-  struct hostent* host_by_name = gethostbyname(host);
-  if (host_by_name && host_by_name->h_addrtype == AF_INET) {
-    // |host| is domain name
-    sa.sin_addr.s_addr = *(in_addr_t*)host_by_name->h_addr_list[0];
-  } else {
-    // |host| is ip address
-    inet_pton(sa.sin_family, host, &sa.sin_addr);
+  if (host && request) {
+    char buffer[SEND_BUFFER_SIZE];
+    sprintf(buffer, HTTP_GET_TEMPLATE, request, host);
+    ret = CopyString(buffer);
   }
 
+  if (host)
+    free((void*)host);
+  if (request)
+    free((void*)request);
+  return ret;
+}
+
+struct sockaddr_in ConstructSockAddr(const char* url) {
+  struct sockaddr_in sa = {0};
+
+  char* host = ParseHost(url);
+  uint16_t port = ParsePort(url);
+
+  if (host && port) {
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(port);
+
+    // check |host| type (domain name or ip address)
+    struct hostent* host_by_name = gethostbyname(host);
+    if (host_by_name && host_by_name->h_addrtype == AF_INET) {
+      // |host| is domain name
+      sa.sin_addr.s_addr = *(in_addr_t*)host_by_name->h_addr_list[0];
+    } else {
+      // |host| is ip address
+      inet_pton(sa.sin_family, host, &sa.sin_addr);
+    }
+  }
+
+  if (host)
+    free((void*)host);
   return sa;
 }
 
-evutil_socket_t CreateSocket(struct sockaddr_in* sa) {
+evutil_socket_t CreateSocket(const char* url) {
+  if (!url)
+    return -1;
+
   // create handle
-  evutil_socket_t sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (sock < 0)
+  evutil_socket_t fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (fd < 0)
     return -1;
 
   // connect to |ip:port|
-  if (connect(sock, (struct sockaddr*)sa, sizeof(struct sockaddr_in)) < 0) {
-    EVUTIL_CLOSESOCKET(sock);
+  struct sockaddr_in sa = ConstructSockAddr(url);
+  if (connect(fd, (struct sockaddr*)&sa, sizeof(struct sockaddr_in)) < 0) {
+    EVUTIL_CLOSESOCKET(fd);
     return -1;
   }
 
-  return sock;
+  return fd;
 }
 
 typedef struct {
@@ -342,8 +359,7 @@ struct event_base* g_event_base;
 void Request(const char* url, request_callback_fn callback, void* context) {
   assert(url);
 
-  if (!g_event_base)
-  {
+  if (!g_event_base) {
     g_event_base = event_base_new();
     assert(g_event_base);
   }
@@ -354,17 +370,7 @@ void Request(const char* url, request_callback_fn callback, void* context) {
     return;
   }
 
-  char* host = ParseHost(url);
-  if (!host) {
-    callback(NULL, NULL, context);
-    return;
-  }
-
-  struct sockaddr_in sa = ConstructSockAddr(host, 80);
-  evutil_socket_t fd = CreateSocket(&sa);
-
-  free((void*)host);
-
+  evutil_socket_t fd = CreateSocket(url);
   if (fd < 0) {
     callback(NULL, NULL, context);
     return;
