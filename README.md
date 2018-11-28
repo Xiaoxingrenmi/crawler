@@ -16,12 +16,13 @@ sudo apt-get install libevent-dev
 
 # Visual Studio Linux Development
 sudo apt-get install openssh-server g++ gdb gdbserver
+sudo service ssh start
 ```
 
 ## Compile
 
 ``` bash
-clang++ crawler/*.c -Wall -levent -o crawler.out
+clang++ crawler/*.c crawler/*.cpp -Wall -levent -o crawler.out
 ```
 
 ## Test Website

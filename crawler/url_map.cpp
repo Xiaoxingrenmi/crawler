@@ -10,16 +10,25 @@
 #include <map>
 #include <string>
 
-size_t yield_unique_index() {
-  static size_t index = 0;
-  return ++index;
-}
-
 // url -> url's index
 typedef std::map<std::string, size_t> IndexMap;
+
+// url's index -> [ connected urls' index ]
+typedef std::multimap<size_t, size_t> UrlMap;
+
 IndexMap& g_index_map() {
   static IndexMap index_map;
   return index_map;
+}
+
+UrlMap& g_url_map() {
+  static UrlMap url_map;
+  return url_map;
+}
+
+size_t yield_unique_index() {
+  static size_t index = 0;
+  return ++index;
 }
 
 size_t GetIndex(const std::string& url) {
@@ -30,13 +39,6 @@ size_t GetIndex(const std::string& url) {
   size_t new_index = yield_unique_index();
   g_index_map().insert(IndexMap::value_type(url, new_index));
   return new_index;
-}
-
-// url's index -> [ connected urls' index ]
-typedef std::multimap<size_t, size_t> UrlMap;
-UrlMap& g_url_map() {
-  static UrlMap url_map;
-  return url_map;
 }
 
 void ConnectUrls(const char* src, const char* dst) {

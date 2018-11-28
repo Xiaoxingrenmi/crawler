@@ -11,9 +11,11 @@
 extern "C" {
 #endif
 
+// sync multi callback
 typedef void (*yeild_url_connection_index_callback_fn)(const char* url,
                                                        size_t index,
                                                        void* context);
+// sync multi callback
 typedef void (*yeild_url_connection_pair_callback_fn)(size_t src,
                                                       size_t dst,
                                                       void* context);

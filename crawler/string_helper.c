@@ -4,6 +4,7 @@
 
 #include "string_helper.h"
 
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,6 +18,7 @@ char* CopyrString(const char* beg, const char* end) {
 
 char* CopynString(const char* src, size_t len) {
   char* ret = (char*)malloc(len + 1);
+  assert(ret);
   if (!ret)
     return NULL;
   

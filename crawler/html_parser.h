@@ -5,6 +5,7 @@
 #ifndef HTML_PARSER
 #define HTML_PARSER
 
+// sync multi callback
 typedef void (*yeild_atag_urls_callback_fn)(const char* url, void* context);
 
 void ParseAtagUrls(const char* html,

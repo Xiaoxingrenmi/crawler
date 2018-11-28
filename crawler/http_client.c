@@ -154,10 +154,12 @@ typedef struct {
   size_t content_length;
 } RequestState;
 
+size_t g_request_state_count;
+
 void DoSend(evutil_socket_t fd, short events, void* context);
 void DoRecv(evutil_socket_t fd, short events, void* context);
 
-void DeleteState(RequestState* state) {
+void FreeState(RequestState* state) {
   if (!state)
     return;
 
@@ -171,6 +173,7 @@ void DeleteState(RequestState* state) {
   if (state->recv_buffer)
     free((void*)state->recv_buffer);
 
+  --g_request_state_count;
   free((void*)state);
 }
 
@@ -180,25 +183,27 @@ RequestState* CreateState(struct event_base* base,
                           request_callback_fn callback,
                           void* context) {
   RequestState* ret = (RequestState*)malloc(sizeof(RequestState));
+  assert(ret);
   if (!ret)
     return NULL;
   memset(ret, 0, sizeof(RequestState));
+  ++g_request_state_count;
 
   ret->send_event = event_new(base, fd, EV_WRITE | EV_PERSIST, DoSend, ret);
   if (!ret->send_event) {
-    DeleteState(ret);
+    FreeState(ret);
     return NULL;
   }
 
   ret->recv_event = event_new(base, fd, EV_READ | EV_PERSIST, DoRecv, ret);
   if (!ret->recv_event) {
-    DeleteState(ret);
+    FreeState(ret);
     return NULL;
   }
 
   ret->send_buffer = ConstructSendBuffer(url);
   if (!ret->send_buffer) {
-    DeleteState(ret);
+    FreeState(ret);
     return NULL;
   }
 
@@ -222,7 +227,7 @@ void DoSend(evutil_socket_t fd, short events, void* context) {
 
       // failed callback
       state->callback(NULL, NULL, state->context);
-      DeleteState(state);
+      FreeState(state);
       return;
     }
     assert(result != 0);
@@ -253,7 +258,7 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
 
       // failed callback
       state->callback(NULL, NULL, state->context);
-      DeleteState(state);
+      FreeState(state);
       return;
     } else if (result == 0) {
       // succeeded callback
@@ -325,7 +330,7 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
 
   // stop recving and delete context
   event_del(state->recv_event);
-  DeleteState(state);
+  FreeState(state);
 
   // close socket
   shutdown(fd, SHUT_RDWR);
@@ -336,6 +341,12 @@ struct event_base* g_event_base;
 
 void Request(const char* url, request_callback_fn callback, void* context) {
   assert(url);
+
+  if (!g_event_base)
+  {
+    g_event_base = event_base_new();
+    assert(g_event_base);
+  }
 
   // ignore https url
   if (strstr(url, URL_HTTPS_SCHEME_START)) {
@@ -359,12 +370,6 @@ void Request(const char* url, request_callback_fn callback, void* context) {
     return;
   }
 
-  if (!g_event_base)
-  {
-    g_event_base = event_base_new();
-    assert(g_event_base);
-  }
-
   RequestState* state = CreateState(g_event_base, fd, url, callback, context);
   if (!state) {
     EVUTIL_CLOSESOCKET(fd);
@@ -379,5 +384,7 @@ void Request(const char* url, request_callback_fn callback, void* context) {
 void DispatchLibEvent() {
   assert(g_event_base);
   event_base_dispatch(g_event_base);
+
   event_base_free(g_event_base);
+  assert(g_request_state_count == 0);
 }

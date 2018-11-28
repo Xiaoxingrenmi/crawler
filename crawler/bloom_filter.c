@@ -1,9 +1,14 @@
 
 // Bloom Filter
 //   by BOT Man & ZhangHan, 2018
+//
+// reference:
+// https://drewdevault.com/2016/04/12/How-to-write-a-better-bloom-filter-in-C.html
 
 #include "bloom_filter.h"
 
+#include <assert.h>
+#include <stdlib.h>
 #include <string.h>
 
 // hash functions
@@ -121,41 +126,78 @@ unsigned APHash(const char* str, unsigned length) {
 unsigned (*g_hash_funcs[])(const char* str, unsigned length) = {
     RSHash, JSHash, PJWHash, ELFHash, BKDRHash, DJBHash, DEKHash, APHash};
 
-// bloom filter contants
+// bloom filter definitions
 
-#define FILTER_M 9996999
-#define FILTER_K (sizeof(g_hash_funcs) / sizeof(g_hash_funcs[0]))
+struct _BloomFilter {
+  void* bits;
+  size_t size;
+};
 
-// global storage
+size_t g_bloom_filter_count;
 
 typedef unsigned char Unit;
 #define UNIT_BIT (sizeof(Unit) * 8)
-Unit g_bit_set[FILTER_M / UNIT_BIT + 1];  // = { 0 }
+#define N_HASH_FUNC (sizeof(g_hash_funcs) / sizeof(g_hash_funcs[0]))
 
-// reference:
-// https://drewdevault.com/2016/04/12/How-to-write-a-better-bloom-filter-in-C.html
+BloomFilter* CreateBloomFilter(size_t size) {
+  BloomFilter* ret = (BloomFilter*)malloc(sizeof(BloomFilter));
+  assert(ret);
+  if (!ret)
+    return NULL;
 
-void BloomFilterAdd(const char* str) {
-  if (!str)
+  size_t bits_size = size / UNIT_BIT + 1;
+  ret->bits = malloc(bits_size);
+  assert(ret->bits);
+  if (!ret->bits) {
+    free(ret);
+    return NULL;
+  }
+  memset(ret->bits, 0, bits_size);
+
+  ret->size = size;
+
+  ++g_bloom_filter_count;
+  return ret;
+}
+
+void FreeBloomFilter(BloomFilter* filter) {
+  if (!filter)
     return;
 
-  for (size_t i = 0; i < FILTER_K; i++) {
-    unsigned hash = g_hash_funcs[i](str, (unsigned)strlen(str)) % FILTER_M;
-    Unit set_value =
-        (Unit)(g_bit_set[hash / UNIT_BIT] | ((Unit)1 << (hash % UNIT_BIT)));
-    g_bit_set[hash / UNIT_BIT] = set_value;
+  if (filter->bits)
+    free(filter->bits);
+
+  free(filter);
+  --g_bloom_filter_count;
+}
+
+void AssertBloomFilterNoLeak() {
+  assert(g_bloom_filter_count == 0);
+}
+
+void BloomFilterAdd(BloomFilter* filter, const char* str) {
+  if (!filter || !filter->bits || !str)
+    return;
+
+  Unit* bits = (Unit*)filter->bits;
+  for (size_t i = 0; i < N_HASH_FUNC; i++) {
+    unsigned hash = g_hash_funcs[i](str, (unsigned)strlen(str)) % filter->size;
+
+    Unit unit = (Unit)(bits[hash / UNIT_BIT] | ((Unit)1 << (hash % UNIT_BIT)));
+    bits[hash / UNIT_BIT] = unit;
   }
 }
 
-unsigned char BloomFilterTest(const char* str) {
-  if (!str)
+unsigned char BloomFilterTest(BloomFilter* filter, const char* str) {
+  if (!filter || !filter->bits || !str)
     return 0;
 
-  for (size_t i = 0; i < FILTER_K; i++) {
-    unsigned hash = g_hash_funcs[i](str, (unsigned)strlen(str)) % FILTER_M;
-    Unit test_value =
-        (Unit)(g_bit_set[hash / UNIT_BIT] & ((Unit)1 << (hash % UNIT_BIT)));
-    if (!test_value)
+  Unit* bits = (Unit*)filter->bits;
+  for (size_t i = 0; i < N_HASH_FUNC; i++) {
+    unsigned hash = g_hash_funcs[i](str, (unsigned)strlen(str)) % filter->size;
+
+    Unit unit = (Unit)(bits[hash / UNIT_BIT] & ((Unit)1 << (hash % UNIT_BIT)));
+    if (!unit)
       return 0;
   }
   return 1;
