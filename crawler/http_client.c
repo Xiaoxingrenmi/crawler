@@ -167,7 +167,6 @@ typedef struct {
 
   struct event* recv_event;
   char* recv_buffer;
-  size_t n_written;
   size_t content_length;
 } RequestState;
 
@@ -233,10 +232,10 @@ void DoSend(evutil_socket_t fd, short events, void* context) {
   assert(context);
   RequestState* state = (RequestState*)context;
 
-  size_t write_upto = strlen(state->send_buffer);
-  while (state->n_written < write_upto) {
-    ssize_t result = send(fd, state->send_buffer + state->n_written,
-                          write_upto - state->n_written, 0);
+  size_t send_upto = strlen(state->send_buffer);
+  while (state->n_sent < send_upto) {
+    ssize_t result = send(fd, state->send_buffer + state->n_sent,
+                          send_upto - state->n_sent, 0);
     if (result < 0) {
       // continue in next term
       if (EVUTIL_SOCKET_ERROR() == EAGAIN)
@@ -250,11 +249,11 @@ void DoSend(evutil_socket_t fd, short events, void* context) {
     assert(result != 0);
 
     // continue sending
-    state->n_written += (size_t)result;
+    state->n_sent += (size_t)result;
   }
 
   // finish sending
-  assert(state->n_written == write_upto);
+  assert(state->n_sent == send_upto);
 
   // stop reading and start recving
   event_del(state->send_event);
