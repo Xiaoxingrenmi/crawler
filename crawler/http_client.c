@@ -18,6 +18,8 @@
 #include <netinet/in.h>
 // For socket functions
 #include <sys/socket.h>
+// For queue
+#include <sys/queue.h>
 
 #include "string_helper.h"
 
@@ -138,25 +140,6 @@ struct sockaddr_in ConstructSockAddr(const char* url) {
   return sa;
 }
 
-evutil_socket_t CreateSocket(const char* url) {
-  if (!url)
-    return -1;
-
-  // create handle
-  evutil_socket_t fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (fd < 0)
-    return -1;
-
-  // connect to |ip:port|
-  struct sockaddr_in sa = ConstructSockAddr(url);
-  if (connect(fd, (struct sockaddr*)&sa, sizeof(struct sockaddr_in)) < 0) {
-    EVUTIL_CLOSESOCKET(fd);
-    return -1;
-  }
-
-  return fd;
-}
-
 typedef struct {
   request_callback_fn callback;
   void* context;
@@ -255,7 +238,7 @@ void DoSend(evutil_socket_t fd, short events, void* context) {
   // finish sending
   assert(state->n_sent == send_upto);
 
-  // stop reading and start recving
+  // stop sending and start recving
   event_del(state->send_event);
   event_add(state->recv_event, NULL);
 }
@@ -353,28 +336,62 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
   EVUTIL_CLOSESOCKET(fd);
 }
 
+// pending request if EMFILE or ENFILE
+struct PendingRequest {
+  const char* url;
+  request_callback_fn callback;
+  void* context;
+
+  TAILQ_ENTRY(PendingRequest) _entries;
+};
+
+TAILQ_HEAD(, PendingRequest) g_pending_request_queue;
+
 struct event_base* g_event_base;
 
-void Request(const char* url, request_callback_fn callback, void* context) {
-  assert(url);
-
+void RequestImpl(const char* url, request_callback_fn callback, void* context) {
+  // init |g_event_base| and |g_pending_request_queue| only once
   if (!g_event_base) {
+    TAILQ_INIT(&g_pending_request_queue);
+
     g_event_base = event_base_new();
     assert(g_event_base);
   }
 
-  // ignore https url
-  if (strstr(url, URL_HTTPS_SCHEME_START)) {
-    callback(NULL, NULL, context);
-    return;
-  }
-
-  evutil_socket_t fd = CreateSocket(url);
+  // create socket or add to pending list
+  evutil_socket_t fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
   if (fd < 0) {
+    // reach fd limit
+    if (EVUTIL_SOCKET_ERROR() == EMFILE || EVUTIL_SOCKET_ERROR() == ENFILE) {
+      // push back current request to pending list
+      struct PendingRequest* pending_request =
+          (struct PendingRequest*)malloc(sizeof(struct PendingRequest));
+      pending_request->url = url;
+      pending_request->callback = callback;
+      pending_request->context = context;
+
+      TAILQ_INSERT_TAIL(&g_pending_request_queue, pending_request, _entries);
+      return;
+    }
+
+    // unexpected socket error
+    assert(fd >= 0);
     callback(NULL, NULL, context);
     return;
   }
 
+  // make socket non-blocking
+  evutil_make_socket_nonblocking(fd);
+
+  // connect to |ip:port|
+  struct sockaddr_in sa = ConstructSockAddr(url);
+  if (connect(fd, (struct sockaddr*)&sa, sizeof sa) < 0) {
+    EVUTIL_CLOSESOCKET(fd);
+    callback(NULL, NULL, context);
+    return;
+  }
+
+  // init state for current request
   RequestState* state = CreateState(g_event_base, fd, url, callback, context);
   if (!state) {
     EVUTIL_CLOSESOCKET(fd);
@@ -382,8 +399,30 @@ void Request(const char* url, request_callback_fn callback, void* context) {
     return;
   }
 
-  evutil_make_socket_nonblocking(fd);
+  // start sending
   event_add(state->send_event, NULL);
+}
+
+void Request(const char* url, request_callback_fn callback, void* context) {
+  assert(url);
+
+  // ignore https url
+  if (strstr(url, URL_HTTPS_SCHEME_START)) {
+    callback(NULL, NULL, context);
+    return;
+  }
+
+  // process pending request(s)
+  while (!TAILQ_EMPTY(&g_pending_request_queue)) {
+    struct PendingRequest* request = TAILQ_FIRST(&g_pending_request_queue);
+    RequestImpl(request->url, request->callback, request->context);
+
+    TAILQ_REMOVE(&g_pending_request_queue, request, _entries);
+    free((void*)request);
+  }
+
+  // process current request
+  RequestImpl(url, callback, context);
 }
 
 void DispatchLibEvent() {

@@ -181,7 +181,8 @@ void BloomFilterAdd(BloomFilter* filter, const char* str) {
 
   Unit* bits = (Unit*)filter->bits;
   for (size_t i = 0; i < N_HASH_FUNC; i++) {
-    unsigned hash = g_hash_funcs[i](str, (unsigned)strlen(str)) % filter->size;
+    unsigned hash =
+        (unsigned)(g_hash_funcs[i](str, (unsigned)strlen(str)) % filter->size);
 
     Unit unit = (Unit)(bits[hash / UNIT_BIT] | ((Unit)1 << (hash % UNIT_BIT)));
     bits[hash / UNIT_BIT] = unit;
@@ -194,7 +195,8 @@ unsigned char BloomFilterTest(BloomFilter* filter, const char* str) {
 
   Unit* bits = (Unit*)filter->bits;
   for (size_t i = 0; i < N_HASH_FUNC; i++) {
-    unsigned hash = g_hash_funcs[i](str, (unsigned)strlen(str)) % filter->size;
+    unsigned hash =
+        (unsigned)(g_hash_funcs[i](str, (unsigned)strlen(str)) % filter->size);
 
     Unit unit = (Unit)(bits[hash / UNIT_BIT] & ((Unit)1 << (hash % UNIT_BIT)));
     if (!unit)
