@@ -380,9 +380,6 @@ void RequestImpl(const char* url, request_callback_fn callback, void* context) {
     return;
   }
 
-  // make socket non-blocking
-  evutil_make_socket_nonblocking(fd);
-
   // connect to |ip:port|
   struct sockaddr_in sa = ConstructSockAddr(url);
   if (connect(fd, (struct sockaddr*)&sa, sizeof sa) < 0) {
@@ -390,6 +387,9 @@ void RequestImpl(const char* url, request_callback_fn callback, void* context) {
     callback(NULL, NULL, context);
     return;
   }
+
+  // make socket non-blocking
+  evutil_make_socket_nonblocking(fd);
 
   // init state for current request
   RequestState* state = CreateState(g_event_base, fd, url, callback, context);
