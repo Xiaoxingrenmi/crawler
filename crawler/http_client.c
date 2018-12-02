@@ -187,8 +187,10 @@ void ToConnState(evutil_socket_t fd, RequestState* state) {
 
   // handle fatal error
   assert(state->event);
-  if (!state->event)
+  if (!state->event) {
     ToFailState(fd, state);
+    return;
+  }
 
   // start new state
   struct timeval tv = {CONN_TIMEOUT_SEC, 0};
@@ -213,8 +215,10 @@ void ToSendState(evutil_socket_t fd, RequestState* state) {
   // handle fatal error
   assert(state->event);
   assert(state->buffer);
-  if (!state->event || !state->buffer)
+  if (!state->event || !state->buffer) {
     ToFailState(fd, state);
+    return;
+  }
 
   // start to-state
   event_add(state->event, NULL);
@@ -238,8 +242,10 @@ void ToRecvState(evutil_socket_t fd, RequestState* state) {
 
   // handle fatal error
   assert(state->event);
-  if (!state->event)
+  if (!state->event) {
     ToFailState(fd, state);
+    return;
+  }
 
   // start to-state
   event_add(state->event, NULL);
@@ -299,6 +305,7 @@ void DoConn(evutil_socket_t fd, short events, void* context) {
 
       // Conn -> Fail
       ToFailState(fd, state);
+      return;
     }
   } else {
     // timeout
@@ -306,6 +313,7 @@ void DoConn(evutil_socket_t fd, short events, void* context) {
 
     // Conn -> Fail
     ToFailState(fd, state);
+    return;
   }
 
   // Conn -> Send
@@ -363,6 +371,7 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
       // Recv -> Fail
       ToFailState(fd, state);
       return;
+
     } else if (result == 0) {
       // succeeded
       break;
@@ -456,7 +465,6 @@ void RequestImpl(const char* url, request_callback_fn callback, void* context) {
     }
 
     // unexpected socket error
-    assert(fd >= 0);
     callback(NULL, NULL, context);
     return;
   }
@@ -490,9 +498,9 @@ void Request(const char* url, request_callback_fn callback, void* context) {
   // process pending request(s)
   while (!TAILQ_EMPTY(&g_pending_request_queue)) {
     struct PendingRequest* request = TAILQ_FIRST(&g_pending_request_queue);
-    RequestImpl(request->url, request->callback, request->context);
-
     TAILQ_REMOVE(&g_pending_request_queue, request, _entries);
+
+    RequestImpl(request->url, request->callback, request->context);
     free((void*)request);
   }
 

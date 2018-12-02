@@ -34,6 +34,7 @@ char* ConcatString(const char* a, const char* b) {
   assert(ret);
   if (!ret)
     return NULL;
+  memset(ret, 0, len + 1);
 
   strcat(ret, a);
   strcat(ret, b);

@@ -71,7 +71,8 @@ char* FixUrl(const char* raw, const char* refer) {
     return ret;
   }
 
-  // |raw| is relative url -> return |refer| + |raw|
+  // |raw| is absolute url -> return |refer-host| + |raw|
+  // |raw| is relative url -> return |refer-host| + |refer-path| + |raw|
   // TODO: handle relative url
   return NULL;
 }
