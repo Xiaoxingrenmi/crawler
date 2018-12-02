@@ -11,6 +11,7 @@
 #include "html_parser.h"
 #include "http_client.h"
 #include "string_helper.h"
+#include "url_helper.h"
 #include "url_map.h"
 
 #define HANDLED_URL_SET_SIZE (160000 * 100)
@@ -29,11 +30,21 @@ typedef struct {
 // global url-set for crawling pages to avoid dup |Request|
 BloomFilter* g_handled_url_set;
 
-void ProcessUrl(const char* url, void* context) {
-  assert(url);
+void ProcessUrl(const char* raw_url, void* context) {
+  assert(raw_url);
   const ProcessUrlContext* page_context = (const ProcessUrlContext*)context;
 
-  // handle page connections
+  // fix |raw_url| to absolute and uniform |url|
+  char* url = page_context ? FixUrl(raw_url, page_context->src_url)
+                           : FixUrl(raw_url, NULL);
+
+  // ignore ill-formed |url|
+  if (!url) {
+    fprintf(stderr, "failed to parse %s\n", raw_url);  
+    return;
+  }
+
+  // handle page connections (test page_url_set, handle by ConnectUrls)
   if (page_context) {
     assert(page_context->src_url);
     assert(page_context->page_url_set);
@@ -41,9 +52,7 @@ void ProcessUrl(const char* url, void* context) {
     // ensure |src_url| in |g_handled_url_set| already
     assert(BloomFilterTest(g_handled_url_set, page_context->src_url));
 
-    // check |url| in |page_url_set|
     if (!BloomFilterTest(page_context->page_url_set, url)) {
-      // add |url| to |page_url_set|
       BloomFilterAdd(page_context->page_url_set, url);
 
       // connect |src_url| to |url|
@@ -51,16 +60,16 @@ void ProcessUrl(const char* url, void* context) {
     }
   }
 
-  // handle crawl tasks
-  // check |url| in |g_handled_url_set|
+  // handle crawl tasks (test g_handled_url_set, handle by Request)
   if (!BloomFilterTest(g_handled_url_set, url)) {
-    // add |url| to |g_handled_url_set|
     BloomFilterAdd(g_handled_url_set, url);
 
     // use |url| as start node to crawl pages
     // async once call |RequestCallback|
     Request(url, RequestCallback, CopyString(url));
   }
+
+  free((void*)url);
 }
 
 void RequestCallback(const char* res, const char* html, void* context) {

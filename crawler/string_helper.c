@@ -21,9 +21,21 @@ char* CopynString(const char* src, size_t len) {
   assert(ret);
   if (!ret)
     return NULL;
-  
+
   strncpy(ret, src, len);
   ret[len] = 0;
 
+  return ret;
+}
+
+char* ConcatString(const char* a, const char* b) {
+  size_t len = strlen(a) + strlen(b);
+  char* ret = (char*)malloc(len + 1);
+  assert(ret);
+  if (!ret)
+    return NULL;
+
+  strcat(ret, a);
+  strcat(ret, b);
   return ret;
 }

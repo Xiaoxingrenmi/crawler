@@ -22,6 +22,7 @@
 #include <sys/queue.h>
 
 #include "string_helper.h"
+#include "url_helper.h"
 
 #define CONN_TIMEOUT_SEC 5
 #define SEND_BUFFER_SIZE 512
@@ -38,64 +39,6 @@ Accept: text/html,application/xhtml+xml,application/xml\r\n\
 #define CONTENT_LENGTH_START "Content-Length: "
 #define CONTENT_LENGTH_TEMPLATE "Content-Length: %lu\r"
 #define CONTENT_START "\r\n\r\n"
-
-#define URL_HTTP_SCHEME_START "http://"
-#define URL_HTTPS_SCHEME_START "https://"
-#define URL_PATH_START "/"
-
-char* ParseHost(const char* url) {
-  if (!url)
-    return NULL;
-
-  // find the begin of host
-  const char* host_beg = NULL;
-  if (strstr(url, URL_HTTP_SCHEME_START) == url) {
-    // url is like 'http://github.com'
-    host_beg = url + sizeof URL_HTTP_SCHEME_START - 1;
-  } else {
-    // url is like 'github.com'
-    host_beg = url;
-  }
-
-  // find the end of host
-  const char* host_end = strstr(host_beg, URL_PATH_START);
-  if (!host_end) {
-    // url has no explicit path piece
-    host_end = url + strlen(url);
-  }
-
-  return CopyrString(host_beg, host_end);
-}
-
-char* ParseRequest(const char* url) {
-  if (!url)
-    return NULL;
-
-  // find the begin of host
-  const char* host_beg = NULL;
-  if (strstr(url, URL_HTTP_SCHEME_START) == url) {
-    // url is like 'http://github.com'
-    host_beg = url + sizeof URL_HTTP_SCHEME_START - 1;
-  } else {
-    // url is like 'github.com'
-    host_beg = url;
-  }
-
-  // find the begin of request
-  const char* request_beg = strstr(host_beg, URL_PATH_START);
-  if (!request_beg) {
-    // url has no path piece
-    return CopyString("/");
-  } else {
-    // url has path piece
-    return CopyString(request_beg);
-  }
-}
-
-uint16_t ParsePort(const char* url) {
-  // TODO: parse port
-  return 80;
-}
 
 char* ConstructSendBuffer(const char* url) {
   char* ret = NULL;
@@ -269,7 +212,8 @@ void ToSendState(evutil_socket_t fd, RequestState* state) {
 
   // handle fatal error
   assert(state->event);
-  if (!state->event)
+  assert(state->buffer);
+  if (!state->event || !state->buffer)
     ToFailState(fd, state);
 
   // start to-state
@@ -379,8 +323,10 @@ void DoSend(evutil_socket_t fd, short events, void* context) {
         send(fd, state->buffer + state->n_sent, send_upto - state->n_sent, 0);
     if (result < 0) {
       // continue in next term
-      if (EVUTIL_SOCKET_ERROR() == EAGAIN)
+      if (EVUTIL_SOCKET_ERROR() == EAGAIN) {
+        event_add(state->event, NULL);
         return;
+      }
 
       // Send -> Fail
       ToFailState(fd, state);
@@ -409,8 +355,10 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
     ssize_t result = recv(fd, buffer, sizeof(buffer) - 1, 0);
     if (result < 0) {
       // continue in next term
-      if (EVUTIL_SOCKET_ERROR() == EAGAIN)
+      if (EVUTIL_SOCKET_ERROR() == EAGAIN) {
+        event_add(state->event, NULL);
         return;
+      }
 
       // Recv -> Fail
       ToFailState(fd, state);
@@ -479,7 +427,7 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
   ToSuccState(fd, state);
 }
 
-// pending request if EMFILE or ENFILE
+// pending request if reaching fd limit
 struct PendingRequest {
   const char* url;
   request_callback_fn callback;
@@ -539,12 +487,6 @@ void Request(const char* url, request_callback_fn callback, void* context) {
     assert(g_event_base);
   }
 
-  // ignore https url
-  if (strstr(url, URL_HTTPS_SCHEME_START)) {
-    callback(NULL, NULL, context);
-    return;
-  }
-
   // process pending request(s)
   while (!TAILQ_EMPTY(&g_pending_request_queue)) {
     struct PendingRequest* request = TAILQ_FIRST(&g_pending_request_queue);
@@ -559,7 +501,8 @@ void Request(const char* url, request_callback_fn callback, void* context) {
 }
 
 void DispatchLibEvent() {
-  assert(g_event_base);
+  if (!g_event_base)
+    return;
 
   // start event loop
   event_base_dispatch(g_event_base);
