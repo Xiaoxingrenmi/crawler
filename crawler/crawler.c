@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/queue.h>
 
 #include "bloom_filter.h"
 #include "html_parser.h"
@@ -17,7 +18,17 @@
 #define HANDLED_URL_SET_SIZE (160000 * 100)
 #define PAGE_URL_SET_SIZE (1000 * 100)
 
-void RequestCallback(const char* url, const char* html, void* context);
+void RequestCallback(const char* url,
+                     RequestStatus status,
+                     const char* html,
+                     void* context);
+
+struct PendingRequest {
+  const char* url;
+  TAILQ_ENTRY(PendingRequest) _entries;
+};
+
+TAILQ_HEAD(, PendingRequest) g_pending_request_queue;
 
 typedef struct {
   // referred source url
@@ -40,7 +51,7 @@ void ProcessUrl(const char* raw_url, void* context) {
 
   // ignore ill-formed |url|
   if (!url) {
-    fprintf(stderr, "failed to parse %s\n", raw_url);  
+    fprintf(stderr, "failed to parse %s\n", raw_url);
     return;
   }
 
@@ -72,12 +83,35 @@ void ProcessUrl(const char* raw_url, void* context) {
   free((void*)url);
 }
 
-void RequestCallback(const char* url, const char* html, void* context) {
+void RequestCallback(const char* url,
+                     RequestStatus status,
+                     const char* html,
+                     void* context) {
   assert(url);
   (void)(context);
 
-  if (!html) {
-    fprintf(stderr, "failed to fetch %s\n", url);
+  if (status == Request_Fd_Limit) {
+    // push back current request to pending list
+    struct PendingRequest* pending_request =
+        (struct PendingRequest*)malloc(sizeof(struct PendingRequest));
+    pending_request->url = url;
+
+    TAILQ_INSERT_TAIL(&g_pending_request_queue, pending_request, _entries);
+    return;
+  }
+
+  // try start pending request(s)
+  while (!TAILQ_EMPTY(&g_pending_request_queue)) {
+    struct PendingRequest* request = TAILQ_FIRST(&g_pending_request_queue);
+    TAILQ_REMOVE(&g_pending_request_queue, request, _entries);
+
+    // may re-enter RequestCallback
+    Request(request->url, RequestCallback, NULL);
+    free((void*)request);
+  }
+
+  if (status != Request_Succ || !html) {
+    fprintf(stderr, "failed to fetch %s (%d)\n", url, status);
     return;
   }
 
@@ -116,6 +150,8 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  TAILQ_INIT(&g_pending_request_queue);
+
   g_handled_url_set = CreateBloomFilter(HANDLED_URL_SET_SIZE);
   assert(g_handled_url_set);
 
@@ -140,6 +176,8 @@ int main(int argc, char* argv[]) {
     fclose(output_file);
 
   FreeBloomFilter(g_handled_url_set);
+
   AssertBloomFilterNoLeak();
+  assert(TAILQ_EMPTY(&g_pending_request_queue));
   return 0;
 }

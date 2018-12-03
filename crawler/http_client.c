@@ -18,8 +18,6 @@
 #include <netinet/in.h>
 // For socket functions
 #include <sys/socket.h>
-// For queue
-#include <sys/queue.h>
 
 #include "string_helper.h"
 #include "url_helper.h"
@@ -59,29 +57,28 @@ char* ConstructSendBuffer(const char* url) {
 }
 
 struct sockaddr_in ConstructSockAddr(const char* url) {
-  struct sockaddr_in sa = {0};
-
+  struct sockaddr_in ret = {0};
   char* host = ParseHost(url);
   uint16_t port = ParsePort(url);
 
   if (host && port) {
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(port);
+    ret.sin_family = AF_INET;
+    ret.sin_port = htons(port);
 
     // check |host| type (domain name or ip address)
     struct hostent* host_by_name = gethostbyname(host);
     if (host_by_name && host_by_name->h_addrtype == AF_INET) {
       // |host| is domain name
-      sa.sin_addr.s_addr = *(in_addr_t*)host_by_name->h_addr_list[0];
+      ret.sin_addr.s_addr = *(in_addr_t*)host_by_name->h_addr_list[0];
     } else {
       // |host| is ip address
-      inet_pton(sa.sin_family, host, &sa.sin_addr);
+      inet_pton(ret.sin_family, host, (void*)&ret.sin_addr);
     }
   }
 
   if (host)
     free((void*)host);
-  return sa;
+  return ret;
 }
 
 typedef struct {
@@ -92,10 +89,8 @@ typedef struct {
   request_callback_fn callback;
   void* context;
 
-  // event of current state
+  // event/buffer of current state
   struct event* event;
-
-  // buffer of current state
   char* buffer;
 
   // event specific data
@@ -117,21 +112,26 @@ RequestState* CreateState(const char* url,
                           request_callback_fn callback,
                           void* context) {
   RequestState* ret = (RequestState*)malloc(sizeof(RequestState));
-  assert(ret);
   if (!ret)
     return NULL;
   memset(ret, 0, sizeof(RequestState));
 
-  ++g_request_state_count;
-
   ret->url = CopyString(url);
+  if (!ret->url) {
+    free((void*)ret);
+    return NULL;
+  }
+
   ret->callback = callback;
   ret->context = context;
+
+  ++g_request_state_count;
   return ret;
 }
 
 void FreeState(RequestState* state) {
   assert(state);
+  assert(state->url);
 
   free((void*)state->url);
   free((void*)state);
@@ -139,29 +139,45 @@ void FreeState(RequestState* state) {
   --g_request_state_count;
 }
 
+void TransformStateEvent(RequestState* state,
+                         struct event* new_event,
+                         unsigned char need_free) {
+  assert(state);
+
+  if (need_free) {
+    assert(state->event);
+    event_free(state->event);
+  } else {
+    assert(!state->event);
+  }
+
+  state->event = new_event;
+}
+
+void TransformStateBuffer(RequestState* state,
+                          char* new_buffer,
+                          unsigned char need_free) {
+  assert(state);
+
+  if (need_free) {
+    assert(state->buffer);
+    free((void*)state->buffer);
+  } else {
+    assert(!state->buffer);
+  }
+
+  state->buffer = new_buffer;
+}
+
 void DoInit(evutil_socket_t fd, short events, void* context);
 void DoConn(evutil_socket_t fd, short events, void* context);
 void DoSend(evutil_socket_t fd, short events, void* context);
 void DoRecv(evutil_socket_t fd, short events, void* context);
 
-// Succ|Fail -> Clear
-void ToClearState(evutil_socket_t fd, RequestState* state) {
+void StateToFail(evutil_socket_t fd,
+                 RequestState* state,
+                 RequestStatus status) {
   assert(state);
-
-  // close socket
-  shutdown(fd, SHUT_RDWR);
-  EVUTIL_CLOSESOCKET(fd);
-
-  // clear state
-  FreeState(state);
-}
-
-// * -> Fail
-void ToFailState(evutil_socket_t fd, RequestState* state) {
-  assert(state);
-
-  // callback on terminal state
-  state->callback(state->url, NULL, state->context);
 
   // clear from-state
   if (state->event)
@@ -169,91 +185,92 @@ void ToFailState(evutil_socket_t fd, RequestState* state) {
   if (state->buffer)
     free((void*)state->buffer);
 
-  // Fail -> Clear
-  ToClearState(fd, state);
+  // close socket
+  EVUTIL_CLOSESOCKET(fd);
+
+  // callback on terminal state
+  state->callback(state->url, status, NULL, state->context);
+
+  // clear state
+  FreeState(state);
 }
 
-// Init -> Conn
-void ToConnState(evutil_socket_t fd, RequestState* state) {
+void StateInitToConn(evutil_socket_t fd, RequestState* state) {
   assert(state);
 
-  // clear from-state
-  assert(!state->event);
-  assert(!state->buffer);
-
-  // init to-state
-  state->event = event_new(g_event_base, fd, EV_WRITE, DoConn, state);
-  state->buffer = NULL;
-
-  // handle fatal error
-  assert(state->event);
-  if (!state->event) {
-    ToFailState(fd, state);
+  // create new event
+  struct event* new_event =
+      event_new(g_event_base, fd, EV_WRITE, DoConn, state);
+  if (!new_event) {
+    StateToFail(fd, state, Request_Event_New_Err);
     return;
   }
+
+  // set up new state
+  TransformStateEvent(state, new_event, 0);
+  TransformStateBuffer(state, NULL, 0);
 
   // start new state
   struct timeval tv = {CONN_TIMEOUT_SEC, 0};
   event_add(state->event, &tv);
 }
 
-// Conn -> Send
-void ToSendState(evutil_socket_t fd, RequestState* state) {
+void StateConnToSend(evutil_socket_t fd, RequestState* state) {
   assert(state);
 
-  // clear from-state
-  assert(state->event);
-  assert(!state->buffer);
-
-  event_free(state->event);
-
-  // init to-state
-  state->event = event_new(g_event_base, fd, EV_WRITE, DoSend, state);
-  state->buffer = ConstructSendBuffer(state->url);
-  state->n_sent = 0;
-
-  // handle fatal error
-  assert(state->event);
-  assert(state->buffer);
-  if (!state->event || !state->buffer) {
-    ToFailState(fd, state);
+  // create new event
+  struct event* new_event =
+      event_new(g_event_base, fd, EV_WRITE, DoSend, state);
+  if (!new_event) {
+    StateToFail(fd, state, Request_Event_New_Err);
     return;
   }
 
-  // start to-state
+  // create new buffer
+  char* new_buffer = ConstructSendBuffer(state->url);
+  if (!new_buffer) {
+    StateToFail(fd, state, Request_Out_Of_Mem);
+    return;
+  }
+
+  // set up new state
+  TransformStateEvent(state, new_event, 1);
+  TransformStateBuffer(state, new_buffer, 0);
+  state->n_sent = 0;
+
+  // start new state
   event_add(state->event, NULL);
 }
 
-// Send -> Recv
-void ToRecvState(evutil_socket_t fd, RequestState* state) {
+void StateSendToRecv(evutil_socket_t fd, RequestState* state) {
   assert(state);
 
-  // clear from-state
-  assert(state->event);
-  assert(state->buffer);
-
-  event_free(state->event);
-  free((void*)state->buffer);
-
-  // init to-state
-  state->event = event_new(g_event_base, fd, EV_READ, DoRecv, state);
-  state->buffer = NULL;  // allocated in DoRecv
-  state->content_length = 0;
-
-  // handle fatal error
-  assert(state->event);
-  if (!state->event) {
-    ToFailState(fd, state);
+  // create new event
+  struct event* new_event = event_new(g_event_base, fd, EV_READ, DoRecv, state);
+  if (!new_event) {
+    StateToFail(fd, state, Request_Event_New_Err);
     return;
   }
 
-  // start to-state
+  // set up new state
+  TransformStateEvent(state, new_event, 1);
+  TransformStateBuffer(state, NULL, 1);
+  state->content_length = 0;
+
+  // start new state
   event_add(state->event, NULL);
 }
 
 // Recv -> Succ
-void ToSuccState(evutil_socket_t fd, RequestState* state) {
+void StateRecvToSucc(evutil_socket_t fd, RequestState* state) {
   assert(state);
+
+  // free event
+  TransformStateEvent(state, NULL, 1);
+
+  // shutdown and close socket
+  shutdown(fd, SHUT_RDWR);
+  EVUTIL_CLOSESOCKET(fd);
 
   // callback on terminal state
   const char* html = strstr(state->buffer, CONTENT_START);
@@ -261,17 +278,13 @@ void ToSuccState(evutil_socket_t fd, RequestState* state) {
     html += sizeof CONTENT_START - 1;
   }
   // TODO: handle error code
-  state->callback(state->url, html, state->context);
+  state->callback(state->url, Request_Succ, html, state->context);
 
-  // clear from-state
-  assert(state->event);
-  assert(state->buffer);
+  // free buffer
+  TransformStateBuffer(state, NULL, 1);
 
-  event_free(state->event);
-  free((void*)state->buffer);
-
-  // Succ -> Clear
-  ToClearState(fd, state);
+  // clear state
+  FreeState(state);
 }
 
 void DoInit(evutil_socket_t fd, short events, void* context) {
@@ -285,40 +298,39 @@ void DoInit(evutil_socket_t fd, short events, void* context) {
     if (EVUTIL_SOCKET_ERROR() != EINPROGRESS &&
         EVUTIL_SOCKET_ERROR() != EINTR) {
       // Init -> Fail
-      ToFailState(fd, state);
+      StateToFail(fd, state, Request_Conn_Err);
       return;
     }
   }
 
   // Init -> Conn
-  ToConnState(fd, state);
+  StateInitToConn(fd, state);
 }
 
 void DoConn(evutil_socket_t fd, short events, void* context) {
   assert(context);
   RequestState* state = (RequestState*)context;
-  if (events & EV_WRITE) {
-    int err;
-    socklen_t len = sizeof(err);
-    assert(0 == getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len));
-    if (err) {
-      // invalid sockopt
 
-      // Conn -> Fail
-      ToFailState(fd, state);
-      return;
-    }
-  } else {
-    // timeout
-    assert(events & EV_TIMEOUT);
-
+  if (events & EV_TIMEOUT) {
     // Conn -> Fail
-    ToFailState(fd, state);
+    StateToFail(fd, state, Request_Conn_Timeout);
+    return;
+  }
+
+  assert(events & EV_WRITE);
+
+  // check sockopt
+  int err;
+  socklen_t len = sizeof(err);
+  assert(0 == getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len));
+  if (err) {
+    // Conn -> Fail
+    StateToFail(fd, state, Request_Bad_Sock_Opt);
     return;
   }
 
   // Conn -> Send
-  ToSendState(fd, state);
+  StateConnToSend(fd, state);
 }
 
 void DoSend(evutil_socket_t fd, short events, void* context) {
@@ -338,7 +350,7 @@ void DoSend(evutil_socket_t fd, short events, void* context) {
       }
 
       // Send -> Fail
-      ToFailState(fd, state);
+      StateToFail(fd, state, Request_Send_Err);
       return;
     }
     assert(result != 0);
@@ -351,7 +363,7 @@ void DoSend(evutil_socket_t fd, short events, void* context) {
   assert(state->n_sent == send_upto);
 
   // Send -> Recv
-  ToRecvState(fd, state);
+  StateSendToRecv(fd, state);
 }
 
 void DoRecv(evutil_socket_t fd, short events, void* context) {
@@ -370,7 +382,7 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
       }
 
       // Recv -> Fail
-      ToFailState(fd, state);
+      StateToFail(fd, state, Request_Recv_Err);
       return;
 
     } else if (result == 0) {
@@ -393,7 +405,12 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
         state->buffer =
             (char*)realloc(state->buffer, previous_len + (size_t)result + 1);
       }
-      assert(state->buffer);
+
+      if (!state->buffer) {
+        // Recv -> Fail
+        StateToFail(fd, state, Request_Out_Of_Mem);
+        return;
+      }
 
       // make |recv_buffer| C-style string
       state->buffer[previous_len] = 0;
@@ -434,39 +451,28 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
   }
 
   // Recv -> Succ
-  ToSuccState(fd, state);
+  StateRecvToSucc(fd, state);
 }
 
-// pending request if reaching fd limit
-struct PendingRequest {
-  const char* url;
-  request_callback_fn callback;
-  void* context;
+void Request(const char* url, request_callback_fn callback, void* context) {
+  assert(url);
 
-  TAILQ_ENTRY(PendingRequest) _entries;
-};
+  // init |g_event_base| only once
+  if (!g_event_base) {
+    g_event_base = event_base_new();
+    assert(g_event_base);
+  }
 
-TAILQ_HEAD(, PendingRequest) g_pending_request_queue;
-
-void RequestImpl(const char* url, request_callback_fn callback, void* context) {
   // create socket or add to pending list
   evutil_socket_t fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-  if (fd < 0) {
-    // reach fd limit
+  if (fd <= 0) {
     if (EVUTIL_SOCKET_ERROR() == EMFILE || EVUTIL_SOCKET_ERROR() == ENFILE) {
-      // push back current request to pending list
-      struct PendingRequest* pending_request =
-          (struct PendingRequest*)malloc(sizeof(struct PendingRequest));
-      pending_request->url = url;
-      pending_request->callback = callback;
-      pending_request->context = context;
-
-      TAILQ_INSERT_TAIL(&g_pending_request_queue, pending_request, _entries);
-      return;
+      // reach fd limit
+      callback(url, Request_Fd_Limit, NULL, context);
+    } else {
+      // unexpected socket error
+      callback(url, Request_Socket_Err, NULL, context);
     }
-
-    // unexpected socket error
-    callback(url, NULL, context);
     return;
   }
 
@@ -477,36 +483,12 @@ void RequestImpl(const char* url, request_callback_fn callback, void* context) {
   RequestState* state = CreateState(url, callback, context);
   if (!state) {
     EVUTIL_CLOSESOCKET(fd);
-    callback(url, NULL, context);
+    callback(url, Request_Out_Of_Mem, NULL, context);
     return;
   }
 
-  // start by Init state
+  // start state machine
   DoInit(fd, 0, state);
-}
-
-void Request(const char* url, request_callback_fn callback, void* context) {
-  assert(url);
-
-  // init |g_event_base| and |g_pending_request_queue| only once
-  if (!g_event_base) {
-    TAILQ_INIT(&g_pending_request_queue);
-
-    g_event_base = event_base_new();
-    assert(g_event_base);
-  }
-
-  // process pending request(s)
-  while (!TAILQ_EMPTY(&g_pending_request_queue)) {
-    struct PendingRequest* request = TAILQ_FIRST(&g_pending_request_queue);
-    TAILQ_REMOVE(&g_pending_request_queue, request, _entries);
-
-    RequestImpl(request->url, request->callback, request->context);
-    free((void*)request);
-  }
-
-  // process current request
-  RequestImpl(url, callback, context);
 }
 
 void DispatchLibEvent() {
@@ -521,5 +503,4 @@ void DispatchLibEvent() {
 
   // check leaks
   assert(g_request_state_count == 0);
-  assert(TAILQ_EMPTY(&g_pending_request_queue));
 }
