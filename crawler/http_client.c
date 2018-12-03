@@ -43,18 +43,18 @@ Accept: text/html,application/xhtml+xml,application/xml\r\n\
 char* ConstructSendBuffer(const char* url) {
   char* ret = NULL;
   char* host = ParseHost(url);
-  char* request = ParseRequest(url);
+  char* path = ParsePath(url);
 
-  if (host && request) {
+  if (host && path) {
     char buffer[SEND_BUFFER_SIZE];
-    sprintf(buffer, HTTP_GET_TEMPLATE, request, host);
+    sprintf(buffer, HTTP_GET_TEMPLATE, path, host);
     ret = CopyString(buffer);
   }
 
   if (host)
     free((void*)host);
-  if (request)
-    free((void*)request);
+  if (path)
+    free((void*)path);
   return ret;
 }
 
@@ -260,6 +260,7 @@ void ToSuccState(evutil_socket_t fd, RequestState* state) {
   if (html) {
     html += sizeof CONTENT_START - 1;
   }
+  // TODO: handle error code
   state->callback(state->buffer, html, state->context);
 
   // clear from-state

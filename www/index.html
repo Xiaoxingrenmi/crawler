@@ -18,20 +18,52 @@ working. Further configuration is required.</p>
 <p><a
 href  	=	"http://localhost/"    
 >
-	home
+	home (absolute)
 </a 
 ><p/>
 
+<p><a href="http://localhost">
+  home (absolute - no trailing slash)
+</a><p/>
+
+<p><a href="/">
+  home (root)
+</a><p/>
+
+<p><a href="../">
+  home (up path)
+</a><p/>
+
 <p><a href="http://localhost/page1/">
-	page1
+	page1 (absolute)
 </a><p/>
 
 <p><a href="/page1/">
-	page1(dup)
+	page1 (root)
 </a><p/>
 
 <p><a href="page1/">
-	page1(dup2)
+	page1 (path)
+</a><p/>
+
+<p><a href="../page1/">
+	page1 (up path)
+</a><p/>
+
+<p><a href="../../page1/">
+  page1 (up up path)
+</a><p/>
+
+<p><a href="https://github.com">
+  github (https)
+</a><p/>
+
+<p><a href="file://github.com">
+  github (file)
+</a><p/>
+
+<p><a href="ftp://github.com">
+  github (ftp)
 </a><p/>
 
 <p><ahref="http://not-reached-url">

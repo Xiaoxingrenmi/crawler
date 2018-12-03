@@ -11,7 +11,7 @@ char* FixUrl(const char* raw, const char* refer);
 
 char* ParseHost(const char* url);
 
-char* ParseRequest(const char* url);
+char* ParsePath(const char* url);
 
 uint16_t ParsePort(const char* url);
 
