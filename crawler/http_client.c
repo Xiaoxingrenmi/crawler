@@ -161,7 +161,7 @@ void ToFailState(evutil_socket_t fd, RequestState* state) {
   assert(state);
 
   // callback on terminal state
-  state->callback(NULL, NULL, state->context);
+  state->callback(state->url, NULL, state->context);
 
   // clear from-state
   if (state->event)
@@ -261,7 +261,7 @@ void ToSuccState(evutil_socket_t fd, RequestState* state) {
     html += sizeof CONTENT_START - 1;
   }
   // TODO: handle error code
-  state->callback(state->buffer, html, state->context);
+  state->callback(state->url, html, state->context);
 
   // clear from-state
   assert(state->event);
@@ -466,7 +466,7 @@ void RequestImpl(const char* url, request_callback_fn callback, void* context) {
     }
 
     // unexpected socket error
-    callback(NULL, NULL, context);
+    callback(url, NULL, context);
     return;
   }
 
@@ -477,7 +477,7 @@ void RequestImpl(const char* url, request_callback_fn callback, void* context) {
   RequestState* state = CreateState(url, callback, context);
   if (!state) {
     EVUTIL_CLOSESOCKET(fd);
-    callback(NULL, NULL, context);
+    callback(url, NULL, context);
     return;
   }
 

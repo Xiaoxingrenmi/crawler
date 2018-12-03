@@ -6,7 +6,7 @@
 #define HTTP_CLIENT
 
 // async once callback
-typedef void (*request_callback_fn)(const char* res,
+typedef void (*request_callback_fn)(const char* url,
                                     const char* html,
                                     void* context);
 

@@ -17,7 +17,7 @@
 #define HANDLED_URL_SET_SIZE (160000 * 100)
 #define PAGE_URL_SET_SIZE (1000 * 100)
 
-void RequestCallback(const char* res, const char* html, void* context);
+void RequestCallback(const char* url, const char* html, void* context);
 
 typedef struct {
   // referred source url
@@ -66,36 +66,28 @@ void ProcessUrl(const char* raw_url, void* context) {
 
     // use |url| as start node to crawl pages
     // async once call |RequestCallback|
-    Request(url, RequestCallback, CopyString(url));
+    Request(url, RequestCallback, NULL);
   }
 
   free((void*)url);
 }
 
-void RequestCallback(const char* res, const char* html, void* context) {
-  (void)(res);
-  char* url = (char*)context;
-  if (!url) {
-    fprintf(stderr, "failed to fetch unknown_url\n");
-    return;
-  }
+void RequestCallback(const char* url, const char* html, void* context) {
+  assert(url);
+  (void)(context);
 
   if (!html) {
     fprintf(stderr, "failed to fetch %s\n", url);
-    free((void*)url);
     return;
   }
 
-  ProcessUrlContext page_context = {
-      url,
-      CreateBloomFilter(PAGE_URL_SET_SIZE),
-  };
+  BloomFilter* page_url_set = CreateBloomFilter(PAGE_URL_SET_SIZE);
+  ProcessUrlContext page_context = {url, page_url_set};
 
   // sync multi call |ProcessUrl|
   ParseAtagUrls(html, ProcessUrl, &page_context);
 
-  free((void*)page_context.src_url);
-  FreeBloomFilter(page_context.page_url_set);
+  FreeBloomFilter(page_url_set);
 }
 
 void YieldUrlConnectionIndexCallback(const char* url,
@@ -133,6 +125,7 @@ int main(int argc, char* argv[]) {
   // dispatch crawl tasks
   DispatchLibEvent();
 
+  // use output_file if exists
   FILE* output_file = NULL;
   if (argc >= 3)
     output_file = fopen(argv[2], "w");

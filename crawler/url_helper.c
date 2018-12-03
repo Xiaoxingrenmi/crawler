@@ -134,7 +134,7 @@ char* FixUrl(const char* raw, const char* refer) {
     // parse refer path
     char* refer_path = ParsePath(refer);
     if (!refer_path)
-      return;
+      return NULL;
     assert(strlen(refer_path) && *refer_path == URL_PATH_CHAR);
 
     // / -> /
