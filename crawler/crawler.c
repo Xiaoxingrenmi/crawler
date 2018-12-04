@@ -105,7 +105,7 @@ void RequestCallback(const char* url,
     struct PendingRequest* request = TAILQ_FIRST(&g_pending_request_queue);
     TAILQ_REMOVE(&g_pending_request_queue, request, _entries);
 
-    // may re-enter RequestCallback
+    // TODO: may re-enter RequestCallback
     Request(request->url, RequestCallback, NULL);
     free((void*)request);
   }
