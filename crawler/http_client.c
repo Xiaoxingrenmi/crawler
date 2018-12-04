@@ -35,8 +35,9 @@ Accept: text/html,application/xhtml+xml,application/xml\r\n\
 "
 
 #define CONTENT_LENGTH_START "Content-Length: "
-#define CONTENT_LENGTH_TEMPLATE "Content-Length: %lu\r"
+#define CONTENT_LENGTH_TEMPLATE "Content-Length: %lu\r\n"
 #define CONTENT_START "\r\n\r\n"
+#define RESPONSE_STATUS_TEMPLATE "%*s%u"
 
 //
 // url helpers
@@ -313,7 +314,6 @@ void StateRecvToSucc(evutil_socket_t fd, RequestState* state) {
   if (html) {
     html += sizeof CONTENT_START - 1;
   }
-  // TODO: handle error code
   state->callback(state->url, Request_Succ, html, state->context);
 
   // free buffer
@@ -329,10 +329,11 @@ void StateToFail(evutil_socket_t fd,
   assert(state);
 
   // free buffer/event
-  TransformStateEvent(state, NULL, RequireFree);
-  TransformStateBuffer(state, NULL, RequireFree);
+  TransformStateEvent(state, NULL, MaybeFree);
+  TransformStateBuffer(state, NULL, MaybeFree);
 
-  // close socket
+  // shutdown and close socket
+  shutdown(fd, SHUT_RDWR);
   EVUTIL_CLOSESOCKET(fd);
 
   // callback on terminal state
@@ -509,8 +510,17 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
     }
   }
 
-  // Recv -> Succ
-  StateRecvToSucc(fd, state);
+  // check response status code
+  unsigned status_code;
+  sscanf(state->buffer, RESPONSE_STATUS_TEMPLATE, &status_code);
+
+  if (status_code == 200) {
+    // Recv -> Succ
+    StateRecvToSucc(fd, state);
+  } else {
+    // Recv -> Fail
+    StateToFail(fd, state, Request_Response_Err);
+  }
 }
 
 //

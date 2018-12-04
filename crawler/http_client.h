@@ -6,7 +6,6 @@
 #define HTTP_CLIENT
 
 typedef enum {
-  Request_Succ,           // succeeded
   Request_Fd_Limit,       // socket errno == EMFILE || ENFILE
   Request_Socket_Err,     // unknown socket() errors
   Request_Out_Of_Mem,     // out of memory
@@ -16,6 +15,8 @@ typedef enum {
   Request_Bad_Sock_Opt,   // invalid sockopt
   Request_Send_Err,       // unknown send() errors
   Request_Recv_Err,       // unknown recv() errors
+  Request_Succ,           // HTTP response 200
+  Request_Response_Err,   // HTTP response not 200
 } RequestStatus;
 
 // async once callback
