@@ -38,6 +38,10 @@ Accept: text/html,application/xhtml+xml,application/xml\r\n\
 #define CONTENT_LENGTH_TEMPLATE "Content-Length: %lu\r"
 #define CONTENT_START "\r\n\r\n"
 
+//
+// url helpers
+//
+
 char* ConstructSendBuffer(const char* url) {
   char* ret = NULL;
   char* host = ParseHost(url);
@@ -81,6 +85,10 @@ struct sockaddr_in ConstructSockAddr(const char* url) {
   return ret;
 }
 
+//
+// state definitions
+//
+
 typedef struct {
   // requested url
   char* url;
@@ -104,9 +112,6 @@ typedef struct {
 } RequestState;
 
 size_t g_request_state_count;
-
-// one event base for single thread
-struct event_base* g_event_base;
 
 RequestState* CreateState(const char* url,
                           request_callback_fn callback,
@@ -139,61 +144,93 @@ void FreeState(RequestState* state) {
   --g_request_state_count;
 }
 
+//
+// trans-state helpers
+//
+
+typedef enum {
+  MaybeFree,    // free previous state's event/buffer if exists
+  RequireFree,  // require free previous state's event/buffer (assert non-empty)
+  DontFree,     // don't free previous state's event/buffer (assert empty)
+} TransformAction;
+
 void TransformStateEvent(RequestState* state,
                          struct event* new_event,
-                         unsigned char need_free) {
+                         TransformAction action) {
   assert(state);
 
-  if (need_free) {
-    assert(state->event);
-    event_free(state->event);
-  } else {
-    assert(!state->event);
+  switch (action) {
+    case RequireFree:
+      assert(state->event);
+      break;
+    case DontFree:
+      assert(!state->event);
+      break;
+    case MaybeFree:
+    default:
+      // don't check
+      break;
   }
 
+  if (state->event)
+    event_free(state->event);
   state->event = new_event;
 }
 
 void TransformStateBuffer(RequestState* state,
                           char* new_buffer,
-                          unsigned char need_free) {
+                          TransformAction action) {
   assert(state);
 
-  if (need_free) {
-    assert(state->buffer);
-    free((void*)state->buffer);
-  } else {
-    assert(!state->buffer);
+  switch (action) {
+    case RequireFree:
+      assert(state->buffer);
+      break;
+    case DontFree:
+      assert(!state->buffer);
+      break;
+    case MaybeFree:
+    default:
+      // don't check
+      break;
   }
 
+  if (state->buffer)
+    free((void*)state->buffer);
   state->buffer = new_buffer;
 }
+
+/*
+  State Transformation:
+
+                     DoInit   DoConn   DoSend   DoRecv
+                        \        \        \        \
+ (CreateState) --> Init --> Conn --> Send --> Recv --> Succ --:
+                    :        :        :        :              :--> (FreeState)
+                    :--------:--------:--------:-----> Fail --:
+*/
+
+// trans-state functions
+
+void StateInitToConn(evutil_socket_t fd, RequestState* state);
+void StateConnToSend(evutil_socket_t fd, RequestState* state);
+void StateSendToRecv(evutil_socket_t fd, RequestState* state);
+void StateRecvToSucc(evutil_socket_t fd, RequestState* state);
+void StateToFail(evutil_socket_t fd, RequestState* state, RequestStatus status);
+
+// in-state functions
 
 void DoInit(evutil_socket_t fd, short events, void* context);
 void DoConn(evutil_socket_t fd, short events, void* context);
 void DoSend(evutil_socket_t fd, short events, void* context);
 void DoRecv(evutil_socket_t fd, short events, void* context);
 
-void StateToFail(evutil_socket_t fd,
-                 RequestState* state,
-                 RequestStatus status) {
-  assert(state);
+// one event base for single thread
+struct event_base* g_event_base;
 
-  // clear from-state
-  if (state->event)
-    event_free(state->event);
-  if (state->buffer)
-    free((void*)state->buffer);
-
-  // close socket
-  EVUTIL_CLOSESOCKET(fd);
-
-  // callback on terminal state
-  state->callback(state->url, status, NULL, state->context);
-
-  // clear state
-  FreeState(state);
-}
+//
+// trans-state functions
+//
 
 void StateInitToConn(evutil_socket_t fd, RequestState* state) {
   assert(state);
@@ -207,8 +244,8 @@ void StateInitToConn(evutil_socket_t fd, RequestState* state) {
   }
 
   // set up new state
-  TransformStateEvent(state, new_event, 0);
-  TransformStateBuffer(state, NULL, 0);
+  TransformStateEvent(state, new_event, DontFree);
+  TransformStateBuffer(state, NULL, DontFree);
 
   // start new state
   struct timeval tv = {CONN_TIMEOUT_SEC, 0};
@@ -234,8 +271,8 @@ void StateConnToSend(evutil_socket_t fd, RequestState* state) {
   }
 
   // set up new state
-  TransformStateEvent(state, new_event, 1);
-  TransformStateBuffer(state, new_buffer, 0);
+  TransformStateEvent(state, new_event, RequireFree);
+  TransformStateBuffer(state, new_buffer, DontFree);
   state->n_sent = 0;
 
   // start new state
@@ -253,20 +290,19 @@ void StateSendToRecv(evutil_socket_t fd, RequestState* state) {
   }
 
   // set up new state
-  TransformStateEvent(state, new_event, 1);
-  TransformStateBuffer(state, NULL, 1);
+  TransformStateEvent(state, new_event, RequireFree);
+  TransformStateBuffer(state, NULL, RequireFree);
   state->content_length = 0;
 
   // start new state
   event_add(state->event, NULL);
 }
 
-// Recv -> Succ
 void StateRecvToSucc(evutil_socket_t fd, RequestState* state) {
   assert(state);
 
   // free event
-  TransformStateEvent(state, NULL, 1);
+  TransformStateEvent(state, NULL, RequireFree);
 
   // shutdown and close socket
   shutdown(fd, SHUT_RDWR);
@@ -281,11 +317,34 @@ void StateRecvToSucc(evutil_socket_t fd, RequestState* state) {
   state->callback(state->url, Request_Succ, html, state->context);
 
   // free buffer
-  TransformStateBuffer(state, NULL, 1);
+  TransformStateBuffer(state, NULL, RequireFree);
 
   // clear state
   FreeState(state);
 }
+
+void StateToFail(evutil_socket_t fd,
+                 RequestState* state,
+                 RequestStatus status) {
+  assert(state);
+
+  // free buffer/event
+  TransformStateEvent(state, NULL, RequireFree);
+  TransformStateBuffer(state, NULL, RequireFree);
+
+  // close socket
+  EVUTIL_CLOSESOCKET(fd);
+
+  // callback on terminal state
+  state->callback(state->url, status, NULL, state->context);
+
+  // clear state
+  FreeState(state);
+}
+
+//
+// in-state functions
+//
 
 void DoInit(evutil_socket_t fd, short events, void* context) {
   assert(!events);
@@ -453,6 +512,10 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
   // Recv -> Succ
   StateRecvToSucc(fd, state);
 }
+
+//
+// export functions
+//
 
 void Request(const char* url, request_callback_fn callback, void* context) {
   assert(url);

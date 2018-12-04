@@ -6,16 +6,16 @@
 #define HTTP_CLIENT
 
 typedef enum {
-  Request_Succ,  // succeeded
-  Request_Fd_Limit,  // socket errno == EMFILE || ENFILE
-  Request_Socket_Err,  // unknown socket() errors
-  Request_Out_Of_Mem,  // out of memory
+  Request_Succ,           // succeeded
+  Request_Fd_Limit,       // socket errno == EMFILE || ENFILE
+  Request_Socket_Err,     // unknown socket() errors
+  Request_Out_Of_Mem,     // out of memory
   Request_Event_New_Err,  // event_new() failed
-  Request_Conn_Err,  // unknown connect() errors
-  Request_Conn_Timeout,  // connect() timeout
-  Request_Bad_Sock_Opt,  // invalid sockopt
-  Request_Send_Err,  // unknown send() errors
-  Request_Recv_Err,  // unknown recv() errors
+  Request_Conn_Err,       // unknown connect() errors
+  Request_Conn_Timeout,   // connect() timeout
+  Request_Bad_Sock_Opt,   // invalid sockopt
+  Request_Send_Err,       // unknown send() errors
+  Request_Recv_Err,       // unknown recv() errors
 } RequestStatus;
 
 // async once callback
