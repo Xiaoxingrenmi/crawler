@@ -565,15 +565,12 @@ void Request(const char* url, request_callback_fn callback, void* context) {
 }
 
 void DispatchLibEvent() {
-  if (!g_event_base)
-    return;
+  if (g_event_base)
+    event_base_dispatch(g_event_base);
+}
 
-  // start event loop
-  event_base_dispatch(g_event_base);
-
-  // free event base
-  event_base_free(g_event_base);
-
-  // check leaks
+void FreeLibEvent() {
+  if (g_event_base)
+    event_base_free(g_event_base);
   assert(g_request_state_count == 0);
 }

@@ -28,6 +28,7 @@ struct PendingRequest {
   TAILQ_ENTRY(PendingRequest) _entries;
 };
 
+unsigned char g_is_fd_reach_limits;
 TAILQ_HEAD(, PendingRequest) g_pending_request_queue;
 
 typedef struct {
@@ -94,21 +95,16 @@ void RequestCallback(const char* url,
     // push back current request to pending list
     struct PendingRequest* pending_request =
         (struct PendingRequest*)malloc(sizeof(struct PendingRequest));
-    pending_request->url = url;
-
+    pending_request->url = CopyString(url);
     TAILQ_INSERT_TAIL(&g_pending_request_queue, pending_request, _entries);
+
+    // set flag |g_is_fd_reach_limits|
+    g_is_fd_reach_limits = 1;
     return;
   }
 
-  // try start pending request(s)
-  while (!TAILQ_EMPTY(&g_pending_request_queue)) {
-    struct PendingRequest* request = TAILQ_FIRST(&g_pending_request_queue);
-    TAILQ_REMOVE(&g_pending_request_queue, request, _entries);
-
-    // TODO: may re-enter RequestCallback
-    Request(request->url, RequestCallback, NULL);
-    free((void*)request);
-  }
+  // clear flag |g_is_fd_reach_limits|
+  g_is_fd_reach_limits = 0;
 
   if (status != Request_Succ || !html) {
     fprintf(stderr, "failed to fetch %s (%d)\n", url, status);
@@ -158,8 +154,34 @@ int main(int argc, char* argv[]) {
   // use |argv[1]| to start crawl tasks
   ProcessUrl(argv[1], NULL);
 
-  // dispatch crawl tasks
-  DispatchLibEvent();
+  while (1) {
+    // dispatch crawl tasks
+    DispatchLibEvent();
+
+    // break if there is no pending request
+    if (TAILQ_EMPTY(&g_pending_request_queue))
+      break;
+
+    // try start pending requests if not |g_is_fd_reach_limits|
+    while (!TAILQ_EMPTY(&g_pending_request_queue)) {
+      if (!g_is_fd_reach_limits)
+        break;
+
+      struct PendingRequest* request = TAILQ_FIRST(&g_pending_request_queue);
+      TAILQ_REMOVE(&g_pending_request_queue, request, _entries);
+
+      Request(request->url, RequestCallback, NULL);
+
+      free((void*)request->url);
+      free((void*)request);
+    }
+  }
+
+  FreeLibEvent();
+  FreeBloomFilter(g_handled_url_set);
+
+  AssertBloomFilterNoLeak();
+  assert(TAILQ_EMPTY(&g_pending_request_queue));
 
   // use output_file if exists
   FILE* output_file = NULL;
@@ -174,10 +196,5 @@ int main(int argc, char* argv[]) {
 
   if (output_file)
     fclose(output_file);
-
-  FreeBloomFilter(g_handled_url_set);
-
-  AssertBloomFilterNoLeak();
-  assert(TAILQ_EMPTY(&g_pending_request_queue));
   return 0;
 }

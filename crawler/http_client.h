@@ -28,5 +28,6 @@ typedef void (*request_callback_fn)(const char* url,
 void Request(const char* url, request_callback_fn callback, void* context);
 
 void DispatchLibEvent();
+void FreeLibEvent();
 
 #endif  // HTTP_CLIENT
