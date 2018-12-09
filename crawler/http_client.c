@@ -510,6 +510,12 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
     }
   }
 
+  if (!state->buffer) {
+    // Recv -> Fail
+    StateToFail(fd, state, Request_Recv_Err);
+    return;
+  }
+
   // check response status code
   unsigned status_code;
   sscanf(state->buffer, RESPONSE_STATUS_TEMPLATE, &status_code);
