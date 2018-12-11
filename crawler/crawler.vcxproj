@@ -79,6 +79,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ClCompile Include="bloom_filter.c" />
+    <ClCompile Include="third_party\HTParse.c" />
     <ClCompile Include="url_helper.c" />
     <ClCompile Include="url_map.cpp" />
     <ClCompile Include="html_parser.c" />
@@ -88,6 +89,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bloom_filter.h" />
+    <ClInclude Include="third_party\HTParse.h" />
     <ClInclude Include="url_helper.h" />
     <ClInclude Include="url_map.h" />
     <ClInclude Include="html_parser.h" />
