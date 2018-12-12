@@ -20,7 +20,7 @@
 #include <sys/socket.h>
 
 #include "string_helper.h"
-#include "url_helper.h"
+#include "third_party/HTParse.h"
 
 #define CONN_TIMEOUT_SEC 5
 #define SEND_BUFFER_SIZE 512
@@ -45,8 +45,8 @@ Accept: text/html,application/xhtml+xml,application/xml\r\n\
 
 char* ConstructSendBuffer(const char* url) {
   char* ret = NULL;
-  char* host = ParseHost(url);
-  char* path = ParsePath(url);
+  char* host = HTParse(url, NULL, PARSE_HOST);
+  char* path = HTParse(url, NULL, PARSE_PATH | PARSE_PUNCTUATION);
 
   if (host && path) {
     char buffer[SEND_BUFFER_SIZE];
@@ -63,8 +63,8 @@ char* ConstructSendBuffer(const char* url) {
 
 struct sockaddr_in ConstructSockAddr(const char* url) {
   struct sockaddr_in ret = {0};
-  char* host = ParseHost(url);
-  uint16_t port = ParsePort(url);
+  char* host = HTParse(url, NULL, PARSE_HOST);
+  uint16_t port = 80;  // TODO: parse port from url
 
   if (host && port) {
     ret.sin_family = AF_INET;

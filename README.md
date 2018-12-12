@@ -5,7 +5,8 @@
 ## Features
 
 - use [libevent](https://libevent.org) to process async IO
-- use [bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) to implement url set
+- use [libwww](https://dev.w3.org/libwww/Library/src/HTParse.html) to parse and canonicalize URL(URI)
+- use [bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) to implement url hash set
 - use [deterministic finite automaton](https://en.wikipedia.org/wiki/Deterministic_finite_automaton) to parse `<a>` tag urls inside html
 
 ## Requirements
@@ -57,3 +58,13 @@ Conn | Send | EV_WRITE + DoConn | EV_WRITE + DoSend | NULL | Send Buffer
 Send | Recv | EV_WRITE + DoSend | EV_READ + DoRecv | Send Buffer | NULL
 Recv | Succ | EV_READ + DoRecv | NULL | Recv Buffer | NULL
 ? | Fail | ? | NULL | ? | NULL
+
+### Extract HTParse.h from HTParse.html
+
+``` js
+// 1. visit https://dev.w3.org/libwww/Library/src/HTParse.html
+// 2. extract header in browser console
+let ret = '';
+for (const pre of document.getElementsByTagName('pre'))
+  ret += '\n' + pre.innerHTML;
+```
