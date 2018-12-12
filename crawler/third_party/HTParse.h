@@ -6,6 +6,8 @@
 #ifndef HTPARSE_H
 #define HTPARSE_H
 
+#ifndef BUILD_ORIGINAL_CODE_
+
 #ifndef BOOL
 #define BOOL unsigned char
 #endif  // !BOOL
@@ -17,6 +19,10 @@
 #ifndef NO
 #define NO 0
 #endif  // !NO
+
+#else
+#include "HTEscape.h"
+#endif  // !BUILD_ORIGINAL_CODE_
 
 #ifdef __cplusplus
 extern "C" {
@@ -40,6 +46,8 @@ extern char* HTRelative(const char* aName, const char* relatedName);
 extern BOOL HTURL_isAbsolute(const char* url);
 
 extern char* HTSimplify(char** filename);
+
+extern BOOL HTCleanTelnetString(char* str);
 
 #ifdef __cplusplus
 }

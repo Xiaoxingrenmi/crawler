@@ -13,13 +13,14 @@
 /* Library include files */
 #include "HTParse.h" /* Implemented here */
 
+#ifndef BUILD_ORIGINAL_CODE_
+
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define PUBLIC
 #define PRIVATE
-#define URI_TRACE
 #define HTTRACE(...)
 
 #define TOLOWER tolower
@@ -29,10 +30,6 @@
 
 #define outofmem(file, name) HT_OUTOFMEM(name)
 #define HT_OUTOFMEM(name) HTMemory_outofmem((name), __FILE__, __LINE__)
-/*	HTMemory_outofmem
-**	-----------------
-**	Call app defined exit function. If that returns, exit anyway.
-*/
 PUBLIC void HTMemory_outofmem(char* name, char* file, unsigned long line) {
   HTTRACE(
       ALL_TRACE,
@@ -42,8 +39,6 @@ PUBLIC void HTMemory_outofmem(char* name, char* file, unsigned long line) {
 }
 
 #define StrAllocCopy(dest, src) HTSACopy(&(dest), src)
-/*	Allocate a new copy of a string, and returns it
- */
 PUBLIC char* HTSACopy(char** dest, const char* src) {
   if (*dest)
     HT_FREE(*dest);
@@ -69,6 +64,13 @@ PUBLIC int strcasecomp(const char* a, const char* b) {
     return -1; /* a was shorter than b */
   return 0;    /* Exact match */
 }
+
+#else
+
+#include "WWWUtil.h"
+#include "wwwsys.h"
+
+#endif  // !BUILD_ORIGINAL_CODE_
 
 typedef struct _HTURI {
   char* access; /* Now known as "scheme" */
@@ -539,7 +541,6 @@ PUBLIC char* HTRelative(const char* aName, const char* relatedName) {
   const char* last_slash = 0;
   int slashes = 0;
 
-  (void)(path);
   for (; *p; p++, q++) { /* Find extent of match */
     if (*p != *q)
       break;
