@@ -35,6 +35,7 @@ Accept: text/html,application/xhtml+xml,application/xml\r\n\
 "
 
 #define CONTENT_LENGTH_START "Content-Length: "
+#define CONTENT_LENGTH_END "\r\n"
 #define CONTENT_LENGTH_TEMPLATE "Content-Length: %lu\r\n"
 #define CONTENT_START "\r\n\r\n"
 #define RESPONSE_STATUS_TEMPLATE "%*s%u"
@@ -481,10 +482,11 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
 
     // process content length
     {
-      // try parse 'Content-Length:' from |recv_buffer|
+      // try parse |content_length| from |recv_buffer|
       if (!state->content_length) {
         const char* cont_len_str = strstr(state->buffer, CONTENT_LENGTH_START);
-        if (cont_len_str) {
+        // try parse |content_length| after receiving full line
+        if (cont_len_str && strstr(cont_len_str, CONTENT_LENGTH_END)) {
           size_t val = 0;
           if (EOF != sscanf(cont_len_str, CONTENT_LENGTH_TEMPLATE, &val))
             state->content_length = val;
@@ -493,14 +495,15 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
 
       // check length of content
       if (state->content_length) {
-        const char* cont_str = strstr(state->buffer, CONTENT_START);
+        char* cont_str = strstr(state->buffer, CONTENT_START);
         if (cont_str) {
           // move to the start of content data
           cont_str += sizeof CONTENT_START - 1;
 
           // check if recv sufficient data
           if (cont_str && strlen(cont_str) >= state->content_length) {
-            assert(strlen(cont_str) == state->content_length);
+            // trunk recv buffer by |content_length|
+            cont_str[state->content_length] = 0;
 
             // succeeded
             break;

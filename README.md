@@ -69,3 +69,9 @@ let ret = '';
 for (const pre of document.getElementsByTagName('pre'))
   ret += '\n' + pre.innerHTML;
 ```
+
+## TODO
+
+- [ ] Parse [PORT](https://en.wikipedia.org/wiki/Uniform_Resource_Identifier#Syntax) from URL authority
+- [ ] Handle [URL redirection](https://en.wikipedia.org/wiki/URL_redirection)
+- [ ] Support [chunked transfer encoding](https://en.wikipedia.org/wiki/Chunked_transfer_encoding#Encoded_data)
