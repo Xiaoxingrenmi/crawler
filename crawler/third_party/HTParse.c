@@ -31,7 +31,9 @@
 
 #define outofmem(file, name) HT_OUTOFMEM(name)
 #define HT_OUTOFMEM(name) HTMemory_outofmem((name), __FILE__, __LINE__)
-PUBLIC void HTMemory_outofmem(char* name, char* file, unsigned long line) {
+PUBLIC void HTMemory_outofmem(const char* name,
+                              const char* file,
+                              unsigned long line) {
   HTTRACE(
       ALL_TRACE,
       "%s:%ld failed allocation for \"%s\" (%ld bytes).\nProgram aborted.\n" _
@@ -311,9 +313,9 @@ PRIVATE char* HTCanon(char** filename, char* host) {
     strptr++;
   }
 
-  /* Does the URL contain a full domain name? This also works for a
-     numerical host name. The domain name is already made lower-case
-     and without a trailing dot. */
+/* Does the URL contain a full domain name? This also works for a
+   numerical host name. The domain name is already made lower-case
+   and without a trailing dot. */
 #if 0
     if (((strptr = strchr(host, '.')) == NULL || strptr >= path) &&
 	strncasecomp(host, "localhost", 9)) {
