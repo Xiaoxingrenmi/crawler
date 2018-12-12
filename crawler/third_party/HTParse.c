@@ -19,8 +19,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PUBLIC
-#define PRIVATE
+#define PUBLIC         /* Accessible outside this module     */
+#define PRIVATE static /* Accessible only within this module */
+
 #define HTTRACE(...)
 
 #define TOLOWER tolower

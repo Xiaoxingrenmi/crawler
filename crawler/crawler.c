@@ -12,9 +12,10 @@
 #include "html_parser.h"
 #include "http_client.h"
 #include "string_helper.h"
-#include "url_helper.h"
+#include "third_party/HTParse.h"
 #include "url_map.h"
 
+#define URL_HTTP_SCHEME "http://"
 #define HANDLED_URL_SET_SIZE (160000 * 100)
 #define PAGE_URL_SET_SIZE (1000 * 100)
 
@@ -46,13 +47,15 @@ void ProcessUrl(const char* raw_url, void* context) {
   assert(raw_url);
   const ProcessUrlContext* page_context = (const ProcessUrlContext*)context;
 
-  // fix |raw_url| to absolute and uniform |url|
-  char* url = page_context ? FixUrl(raw_url, page_context->src_url)
-                           : FixUrl(raw_url, NULL);
+  // fix |raw_url| by |src_url| to canonical |url|
+  char* url =
+      HTParse(raw_url, page_context ? page_context->src_url : NULL, PARSE_ALL);
+  HTSimplify(&url);
 
-  // ignore ill-formed |url|
-  if (!url) {
+  // ignore non-http url
+  if (strstr(url, URL_HTTP_SCHEME) != url) {
     fprintf(stderr, "failed to parse %s\n", raw_url);
+    free((void*)url);
     return;
   }
 
@@ -128,7 +131,7 @@ void YieldUrlConnectionIndexCallback(const char* url,
   assert(context);
   FILE* output_file = (FILE*)context;
 
-  fprintf(output_file, "- %3lu %s\n", index, url);
+  fprintf(output_file, "%-3lu %s\n", index, url);
 }
 
 void YieldUrlConnectionPairCallback(size_t src, size_t dst, void* context) {
@@ -137,7 +140,7 @@ void YieldUrlConnectionPairCallback(size_t src, size_t dst, void* context) {
   assert(context);
   FILE* output_file = (FILE*)context;
 
-  fprintf(output_file, "+ %3lu %3lu\n", src, dst);
+  fprintf(output_file, "%-3lu %-3lu\n", src, dst);
 }
 
 int main(int argc, char* argv[]) {
@@ -184,17 +187,17 @@ int main(int argc, char* argv[]) {
   assert(TAILQ_EMPTY(&g_pending_request_queue));
 
   // use output_file if exists
-  FILE* output_file = NULL;
+  FILE* output_file = stdout;
   if (argc >= 3)
     output_file = fopen(argv[2], "w");
 
   // output results
-  YieldUrlConnectionIndex(YieldUrlConnectionIndexCallback,
-                          output_file ? output_file : stdout);
-  YieldUrlConnectionPair(YieldUrlConnectionPairCallback,
-                         output_file ? output_file : stdout);
+  fprintf(output_file, "\n");
+  YieldUrlConnectionIndex(YieldUrlConnectionIndexCallback, output_file);
+  fprintf(output_file, "\n");
+  YieldUrlConnectionPair(YieldUrlConnectionPairCallback, output_file);
 
-  if (output_file)
+  if (output_file != stdout)
     fclose(output_file);
   return 0;
 }
