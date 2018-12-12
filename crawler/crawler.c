@@ -47,9 +47,9 @@ void ProcessUrl(const char* raw_url, void* context) {
   assert(raw_url);
   const ProcessUrlContext* page_context = (const ProcessUrlContext*)context;
 
-  // fix |raw_url| by |src_url| to canonical |url|
-  char* url =
-      HTParse(raw_url, page_context ? page_context->src_url : NULL, PARSE_ALL);
+  // fix |raw_url| by |src_url| to canonical |url| without fragment
+  char* url = HTParse(raw_url, page_context ? page_context->src_url : NULL,
+                      PARSE_ALL & ~PARSE_VIEW);
   HTSimplify(&url);
 
   // ignore non-http url

@@ -23,7 +23,7 @@ sudo service ssh start
 ## Compile
 
 ``` bash
-clang++ crawler/*.c crawler/*.cpp -Wall -levent -o crawler.out
+clang++ crawler/*.c crawler/*.cpp crawler/third_party/*.c -Wall -levent -o crawler.out
 ```
 
 ## Test Website
