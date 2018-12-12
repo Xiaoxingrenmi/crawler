@@ -54,7 +54,6 @@ void ProcessUrl(const char* raw_url, void* context) {
 
   // ignore non-http url
   if (strstr(url, URL_HTTP_SCHEME) != url) {
-    fprintf(stderr, "failed to parse %s\n", raw_url);
     free((void*)url);
     return;
   }
@@ -192,7 +191,6 @@ int main(int argc, char* argv[]) {
     output_file = fopen(argv[2], "w");
 
   // output results
-  fprintf(output_file, "\n");
   YieldUrlConnectionIndex(YieldUrlConnectionIndexCallback, output_file);
   fprintf(output_file, "\n");
   YieldUrlConnectionPair(YieldUrlConnectionPairCallback, output_file);

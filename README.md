@@ -7,7 +7,8 @@
 - use [libevent](https://libevent.org) to process async IO
 - use [libwww](https://dev.w3.org/libwww/Library/src/HTParse.html) to parse and canonicalize URL(URI)
 - use [bloom filter](https://en.wikipedia.org/wiki/Bloom_filter) to implement url hash set
-- use [deterministic finite automaton](https://en.wikipedia.org/wiki/Deterministic_finite_automaton) to parse `<a>` tag urls inside html
+- use [deterministic finite automaton (DFA)](https://en.wikipedia.org/wiki/Deterministic_finite_automaton) to parse `<a>` tag urls inside html
+- use [TAILQ](https://linux.die.net/man/3/queue) to implement pending request queue
 
 ## Requirements
 
@@ -59,7 +60,7 @@ Send | Recv | EV_WRITE + DoSend | EV_READ + DoRecv | Send Buffer | NULL
 Recv | Succ | EV_READ + DoRecv | NULL | Recv Buffer | NULL
 ? | Fail | ? | NULL | ? | NULL
 
-### Extract HTParse.h from HTParse.html
+### How to extract HTParse.h
 
 ``` js
 // 1. visit https://dev.w3.org/libwww/Library/src/HTParse.html
