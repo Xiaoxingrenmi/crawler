@@ -140,7 +140,7 @@ void YieldUrlConnectionPairCallback(size_t src, size_t dst, void* context) {
   assert(context);
   FILE* output_file = (FILE*)context;
 
-  fprintf(output_file, "%-3lu %-3lu\n", src, dst);
+  fprintf(output_file, "%-3lu %lu\n", src, dst);
 }
 
 int main(int argc, char* argv[]) {
