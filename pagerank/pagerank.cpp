@@ -139,7 +139,7 @@ void StepPageRank(const Matrix& matrix,
 
   // output to each in |next_ranks| by |new_rank|
   std::for_each(std::begin(next_ranks), std::end(next_ranks),
-                [&new_rank](Ranks::value_type& pair) {
+                [&new_rank](Ranks::value_type& pair) -> void {
                   pair.second = new_rank(pair.first);
                 });
 }
@@ -165,7 +165,7 @@ bool IsConvergent(const Ranks& ranks, const Ranks& next_ranks) {
              }) < kConvergenceEpsilon;
 }
 
-// convergent ? ranks : step(ranks)
+// convergent ? ranks : iterate(ranks)
 Ranks& IteratePageRank(const Matrix& matrix,
                        const Matrix& transposed,
                        const size_t number_of_pages,
@@ -193,11 +193,13 @@ Ranks& IteratePageRank(const Matrix& matrix,
 
 // Matrix -> Ranks
 Ranks DoPageRank(const Matrix& matrix) {
-  return [&matrix](const IndexSet& index_set) {
-    Ranks ranks = InitRanks(index_set);
-    Ranks next_ranks = InitRanks(index_set);
-    return IteratePageRank(matrix, Transpose(matrix), index_set.size(), ranks,
-                           next_ranks);
+  return [&matrix](const IndexSet& index_set) -> Ranks {
+    // Non-functional:
+    // Use double buffer to avoid unnecessary copy for optimization
+    Ranks ranks1 = InitRanks(index_set);
+    Ranks ranks2 = InitRanks(index_set);
+    return IteratePageRank(matrix, Transpose(matrix), index_set.size(), ranks1,
+                           ranks2);
   }(GetIndexSet(matrix));
 }
 
@@ -283,7 +285,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  [&ofs](const InputRet& input) {
+  [&ofs](const InputRet& input) -> void {
     Output(ofs.is_open() ? ofs : std::cout,
            NormalizeOutput(input.first, DoPageRank(input.second)));
   }(Input(ifs));
