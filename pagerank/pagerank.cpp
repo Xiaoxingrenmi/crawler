@@ -5,6 +5,31 @@
 // References:
 // - http://ilpubs.stanford.edu:8090/422/1/1999-66.pdf
 // - https://en.wikipedia.org/wiki/PageRank#Iterative
+//
+// Input:
+//
+// 1 http://localhost/
+// 2 http://localhost/page1/
+// 3 http://localhost/page2/
+// 4 http://localhost/page2/page2-1/
+//
+// 1 1
+// 1 2
+// 2 1
+// 2 3
+// 2 4
+// 3 1
+// 3 3
+// 3 4
+// 4 1
+// 4 3
+//
+// Output:
+//
+// 0.161595 http://localhost/page2/page2-1/
+// 0.207705 http://localhost/page1/
+// 0.230248 http://localhost/page2/
+// 0.400453 http://localhost/
 
 #include <assert.h>
 #include <math.h>
@@ -123,8 +148,7 @@ struct Line {
 };
 
 std::istream& operator>>(std::istream& istr, Line& data) {
-  std::getline(istr, data.line);
-  return istr;
+  return std::getline(istr, data.line);
 }
 
 using InputRet = std::pair<UrlIndexMap, AdjacencyMatrix>;
@@ -142,13 +166,13 @@ InputRet Input(std::istream& istr) {
           Index index;
           Url url;
           std::istringstream(line) >> index >> url;
-          assert(index && !url.empty());
+          assert(index && !url.empty());  // input validation
           ret.first.emplace(index - 1, url);
         } else {
           Index index1;
           Index index2;
           std::istringstream(line) >> index1 >> index2;
-          assert(index1 && index2);
+          assert(index1 && index2);  // input validation
           ret.second.emplace(index1 - 1, index2 - 1);
         }
         return ret;
@@ -191,7 +215,7 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  auto input = Input(ifs);
+  const InputRet input = Input(ifs);
   const UrlIndexMap& url_index_map = input.first;
 
   const AdjacencyMatrix& matrix = input.second;
@@ -217,6 +241,7 @@ int main(int argc, char* argv[]) {
               std::ostream_iterator<Rank>(std::cout, " "));
     std::cout << std::endl << std::endl;
 #endif  // DEBUG
+
     std::swap(ranks, next_ranks);
   } while (!IsConvergent(ranks, next_ranks));
 
