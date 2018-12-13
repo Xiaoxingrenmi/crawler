@@ -186,9 +186,7 @@ int main(int argc, char* argv[]) {
   assert(TAILQ_EMPTY(&g_pending_request_queue));
 
   // use output_file if exists
-  FILE* output_file = stdout;
-  if (argc >= 3)
-    output_file = fopen(argv[2], "w");
+  FILE* output_file = argc >= 3 ? fopen(argv[2], "w") : stdout;
 
   // output results
   YieldUrlConnectionIndex(YieldUrlConnectionIndexCallback, output_file);

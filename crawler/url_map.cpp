@@ -37,12 +37,12 @@ size_t GetIndex(const std::string& url) {
     return iter->second;
 
   size_t new_index = yield_unique_index();
-  g_index_map().insert(IndexMap::value_type(url, new_index));
+  g_index_map().emplace(url, new_index);
   return new_index;
 }
 
 void ConnectUrls(const char* src, const char* dst) {
-  g_url_map().insert(UrlMap::value_type(GetIndex(src), GetIndex(dst)));
+  g_url_map().emplace(GetIndex(src), GetIndex(dst));
 }
 
 void YieldUrlConnectionIndex(yeild_url_connection_index_callback_fn callback,
