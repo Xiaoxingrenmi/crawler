@@ -83,6 +83,8 @@ IndexSet GetIndexSet(const Matrix& matrix) {
 
 // IndexSet -> Ranks { 1/N }
 Ranks InitRanks(const IndexSet& index_set) {
+  assert(!index_set.empty());
+
   return std::accumulate(
       std::begin(index_set), std::end(index_set), Ranks{},
       [init = static_cast<Rank>(1) / static_cast<Rank>(index_set.size())](
@@ -303,16 +305,12 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  // store ifstream/ofstream in local variables
-  auto ifs = std::ifstream(argv[1]);
-  auto ofs = argc >= 3 ? std::ofstream(argv[2]) : std::ofstream();
-  if (!ifs.is_open()) {
-    std::cerr << "failed to open " << argv[1] << "\n";
-    return 1;
-  }
-
-  [&ofs](const InputRet& input, std::ostream& ostr) -> void {
-    Output(ostr, GetUrlRankMap(input.url_index_map, DoPageRank(input.matrix)));
-  }(Input(ifs), ofs.is_open() ? ofs : std::cout);
+  [](std::ifstream&& ifs, std::ofstream&& ofs) -> void {
+    [](const InputRet& input, std::ostream& ostr) -> void {
+      Output(ostr,
+             GetUrlRankMap(input.url_index_map, DoPageRank(input.matrix)));
+    }(Input(ifs), ofs.is_open() ? ofs : std::cout);
+  }(std::ifstream(argv[1]), argc >= 3 ? std::ofstream(argv[2])
+                                      : std::ofstream());
   return 0;
 }
