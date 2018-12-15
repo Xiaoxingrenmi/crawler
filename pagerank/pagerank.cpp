@@ -47,145 +47,155 @@
 #include <string>
 #include <utility>
 
-using Index = size_t;
-using Matrix = std::multimap<Index, Index>;
-using IndexSet = std::set<Index>;
+// adjacency matrix: { from x to }
+template <typename K>
+using Matrix = std::multimap<K, K>;
 
-using Rank = double;
-using Ranks = std::map<Index, Rank>;
-
-using Url = std::string;
-using UrlIndexMap = std::map<Index, Url>;
+// vector: { key x value }
+template <typename K, typename V>
+using Vector = std::map<K, V>;
 
 constexpr auto kDampingFactor = .85;
 constexpr auto kConvergenceEpsilon = 1e-6;
-constexpr auto kDeviationLimit = 1e-6;
 
 // Matrix -> (Matrix)^T
-Matrix Transpose(const Matrix& matrix) {
+template <typename K>
+Matrix<K> Transpose(const Matrix<K>& matrix) {
+  using Edge = typename Matrix<K>::value_type;
+
   return std::accumulate(
-      std::begin(matrix), std::end(matrix), Matrix{},
-      [](Matrix& transposed, const Matrix::value_type& pair) -> Matrix& {
-        transposed.emplace(pair.second, pair.first);
+      std::begin(matrix), std::end(matrix), Matrix<K>{},
+      [](Matrix<K>& transposed, const Edge& edge) -> Matrix<K>& {
+        transposed.emplace(edge.second, edge.first);
         return transposed;
       });
 }
 
-// Matrix -> IndexSet
-IndexSet GetIndexSet(const Matrix& matrix) {
-  return std::accumulate(
-      std::begin(matrix), std::end(matrix), IndexSet{},
-      [](IndexSet& index_set, const Matrix::value_type& pair) -> IndexSet& {
-        index_set.emplace(pair.first);
-        index_set.emplace(pair.second);
-        return index_set;
-      });
-}
+// Vector -> Vector / || Vector ||
+template <typename K, typename V>
+Vector<K, V> Normalize(Vector<K, V>&& vector) {
+  using VectorKeyValuePair = typename Vector<K, V>::value_type;
 
-// IndexSet -> Ranks { 1/N }
-Ranks InitRanks(const IndexSet& index_set) {
-  assert(!index_set.empty());
+  // sigma {value \in Vector} (value)
+  auto vector_norm = [](const Vector<K, V>& vector) -> V {
+    return std::accumulate(
+        std::begin(vector), std::end(vector), V{},
+        [](V vector_norm, const VectorKeyValuePair& pair) -> V {
+          return vector_norm + pair.second;
+        });
+  };
 
-  return std::accumulate(
-      std::begin(index_set), std::end(index_set), Ranks{},
-      [init = static_cast<Rank>(1) / static_cast<Rank>(index_set.size())](
-          Ranks& ranks, Index index) -> Ranks& {
-        ranks.emplace(index, init);
-        return ranks;
-      });
-}
-
-// Ranks -> || Ranks ||
-Rank GetNorm(const Ranks& ranks) {
-  return std::accumulate(
-      std::begin(ranks), std::end(ranks), static_cast<Rank>(0),
-      [](Rank vector_norm, const Ranks::value_type& pair) -> Rank {
-        return vector_norm + pair.second;
-      });
-}
-
-// Ranks -> Ranks / || Ranks ||
-Ranks NormalizeRanks(Ranks&& ranks) {
+  // Vector /= || Vector ||
   std::for_each(
-      std::begin(ranks), std::end(ranks),
-      [vector_norm = GetNorm(ranks)](Ranks::value_type& pair) -> void {
+      std::begin(vector), std::end(vector),
+      [vector_norm = vector_norm(vector)](VectorKeyValuePair& pair) -> void {
         pair.second = pair.second / vector_norm;
       });
-  return ranks;
+  return vector;
+}
+
+// Matrix -> Vector { 1/N }
+template <typename K, typename V>
+Vector<K, V> InitVector(const Matrix<K>& matrix, V init_value) {
+  using Edge = typename Matrix<K>::value_type;
+  using IndexSet = std::set<K>;
+
+  // Matrix -> IndexSet
+  auto index_set = [](const Matrix<K>& matrix) -> IndexSet {
+    return std::accumulate(
+        std::begin(matrix), std::end(matrix), IndexSet{},
+        [](IndexSet& index_set, const Edge& edge) -> IndexSet& {
+          index_set.emplace(edge.first);
+          index_set.emplace(edge.second);
+          return index_set;
+        });
+  };
+
+  // IndexSet -> Vector { 1/N }
+  auto init_vector = [init_value](const IndexSet& index_set) -> Vector<K, V> {
+    return std::accumulate(
+        std::begin(index_set), std::end(index_set), Vector<K, V>{},
+        [init_value](Vector<K, V>& vector, K index) -> Vector<K, V>& {
+          vector.emplace(index, init_value);
+          return vector;
+        });
+  };
+
+  return init_vector(index_set(matrix));
 }
 
 // Ranks -> next Ranks (override |temp_ranks|)
-Ranks StepPageRank(const Matrix& matrix,
-                   const Matrix& transposed,
-                   const size_t number_of_pages,
-                   const Ranks& ranks,
-                   Ranks&& temp_ranks) {
-  assert(number_of_pages == ranks.size());
-  assert(number_of_pages == temp_ranks.size());
+template <typename K, typename V>
+Vector<K, V> StepPageRank(const Matrix<K>& matrix,
+                          const Matrix<K>& transposed,
+                          const Vector<K, V>& ranks,
+                          Vector<K, V>&& temp_ranks) {
+  using Edge = typename Matrix<K>::value_type;
+  using VectorKeyValuePair = typename Vector<K, V>::value_type;
+  assert(ranks.size() == temp_ranks.size());
 
   // ranks[index]
-  auto rank = [&ranks](Index index) -> Rank { return ranks.at(index); };
+  auto rank = [&ranks](K index) -> V { return ranks.at(index); };
 
   // out_degree(index)
-  auto out_degree = [&matrix](Index index) -> size_t {
+  auto out_degree = [&matrix](K index) -> size_t {
     return matrix.count(index);
   };
 
   // sigma {from \in ((Matrix)^T)[to]} (rank(from) / out_degree(from))
-  auto incoming_rank = [&transposed, &rank, &out_degree](Index index) -> Rank {
+  auto incoming_rank = [&transposed, &rank, &out_degree](K index) -> V {
     return std::accumulate(
-        transposed.lower_bound(index), transposed.upper_bound(index),
-        static_cast<Rank>(0),
-        [&rank, &out_degree](Rank rank_sum,
-                             const Matrix::value_type& pair) -> Rank {
+        transposed.lower_bound(index), transposed.upper_bound(index), V{},
+        [&rank, &out_degree](V rank_sum, const Edge& edge) -> V {
           return rank_sum +
-                 rank(pair.second) / static_cast<Rank>(out_degree(pair.second));
+                 rank(edge.second) / static_cast<V>(out_degree(edge.second));
         });
   };
 
-  // ((1 - damping) / number_of_pages + damping * incoming_rank(index))
-  auto new_rank = [&incoming_rank, number_of_pages](Index index) -> Rank {
-    return (1 - kDampingFactor) / static_cast<Rank>(number_of_pages) +
+  // ((1 - damping) / N + damping * incoming_rank(index))
+  auto new_rank = [&incoming_rank, N = ranks.size()](K index) -> V {
+    return (1 - kDampingFactor) / static_cast<V>(N) +
            kDampingFactor * incoming_rank(index);
   };
 
   std::for_each(std::begin(temp_ranks), std::end(temp_ranks),
-                [&new_rank](Ranks::value_type& pair) -> void {
+                [&new_rank](VectorKeyValuePair& pair) -> void {
                   pair.second = new_rank(pair.first);
                 });
-  return NormalizeRanks(std::move(temp_ranks));
+  return Normalize(std::move(temp_ranks));
 }
 
 // || Ranks - next Ranks || == 0
-bool IsConvergent(const Ranks& ranks, const Ranks& next_ranks) {
+template <typename K, typename V>
+bool IsConvergent(const Vector<K, V>& ranks, const Vector<K, V>& next_ranks) {
+  using VectorKeyValuePair = typename Vector<K, V>::value_type;
   assert(ranks.size() == next_ranks.size());
 
   // next_ranks[index]
-  auto next_rank = [&next_ranks](Index index) -> Rank {
-    return next_ranks.at(index);
-  };
+  auto next_rank = [&next_ranks](K index) -> V { return next_ranks.at(index); };
 
   // (rank)^2
-  auto square = [](Rank rank) -> Rank { return rank * rank; };
+  auto square = [](V rank) -> V { return rank * rank; };
 
   // sigma {index \in IndexSet} ((rank(index) - next_rank(index))^2) < e
   return std::accumulate(
-             std::begin(ranks), std::end(ranks), static_cast<Rank>(0),
-             [&square, &next_rank](Rank norm,
-                                   const Ranks::value_type& pair) -> Rank {
-               return norm + square(pair.second - next_rank(pair.first));
+             std::begin(ranks), std::end(ranks), V{},
+             [&square, &next_rank](V vector_norm,
+                                   const VectorKeyValuePair& pair) -> V {
+               return vector_norm + square(pair.second - next_rank(pair.first));
              }) < kConvergenceEpsilon;
 }
 
 // -> next_ranks = step(ranks) (override |temp_ranks|)
 // -> convergent(ranks, next_ranks) ? next_ranks : iterate(next_ranks)
-Ranks IteratePageRank(const Matrix& matrix,
-                      const Matrix& transposed,
-                      const size_t N,
-                      Ranks&& ranks,
-                      Ranks&& temp_ranks) {
+template <typename K, typename V>
+Vector<K, V> IteratePageRank(const Matrix<K>& matrix,
+                             const Matrix<K>& transposed,
+                             Vector<K, V>&& ranks,
+                             Vector<K, V>&& temp_ranks) {
   // Use double buffer to avoid unnecessary copy for optimization
-  return [&matrix, &transposed, N, &ranks](Ranks&& next_ranks) -> Ranks {
+  return [&matrix, &transposed,
+          &ranks](Vector<K, V>&& next_ranks) -> Vector<K, V> {
 
 #ifdef DEBUG
     std::cout << "pre: ";
@@ -201,17 +211,19 @@ Ranks IteratePageRank(const Matrix& matrix,
 
     return IsConvergent(ranks, next_ranks)
                ? next_ranks
-               : IteratePageRank(matrix, transposed, N, std::move(next_ranks),
+               : IteratePageRank(matrix, transposed, std::move(next_ranks),
                                  std::move(ranks));
-  }(StepPageRank(matrix, transposed, N, ranks, std::move(temp_ranks)));
+  }(StepPageRank(matrix, transposed, ranks, std::move(temp_ranks)));
 }
 
-// Matrix -> Ranks
-Ranks DoPageRank(const Matrix& matrix) {
-  return [&matrix](const IndexSet& index_set) -> Ranks {
-    return IteratePageRank(matrix, Transpose(matrix), index_set.size(),
-                           InitRanks(index_set), InitRanks(index_set));
-  }(GetIndexSet(matrix));
+using Index = size_t;
+using Rank = double;
+using Url = std::string;
+
+Vector<Index, Rank> DoPageRank(const Matrix<Index>& matrix) {
+  return IteratePageRank(matrix, Transpose(matrix),
+                         Normalize(InitVector(matrix, Rank(1))),
+                         InitVector(matrix, Rank(1)));
 }
 
 struct Line {
@@ -227,8 +239,8 @@ std::istream& operator>>(std::istream& istr, Line& data) {
 
 // (Index x Url) & ((Index x Index))
 struct InputRet {
-  UrlIndexMap url_index_map;
-  Matrix matrix;
+  Vector<Index, Url> urls;
+  Matrix<Index> matrix;
 
   bool read_empty_line = false;
 };
@@ -239,7 +251,7 @@ InputRet Input(std::istream& istr) {
     Index index;
     Url url;
     std::istringstream(line) >> index >> url;
-    ret.url_index_map.emplace(index, url);
+    ret.urls.emplace(index, url);
     return ret;
   };
 
@@ -271,18 +283,18 @@ InputRet Input(std::istream& istr) {
 using OutputMap = std::multimap<Rank, Url, std::greater<Rank>>;
 
 // (Index x Rank) x (Index x Url) -> ((Rank x Url))
-OutputMap GetUrlRankMap(const UrlIndexMap& url_index_map, const Ranks& ranks) {
-  assert(url_index_map.size() == ranks.size());
-  assert(fabs(GetNorm(ranks) - static_cast<Rank>(1)) < kDeviationLimit);
+OutputMap GetUrlRankMap(const Vector<Index, Url>& urls,
+                        const Vector<Index, Rank>& ranks) {
+  using IndexUrlPair = Vector<Index, Url>::value_type;
+  assert(urls.size() == ranks.size());
 
   // ranks[index]
   auto rank = [&ranks](Index index) -> Rank { return ranks.at(index); };
 
   return std::accumulate(
-      std::begin(url_index_map), std::end(url_index_map), OutputMap{},
-      [&rank](OutputMap& ret,
-              const UrlIndexMap::value_type& url_index) -> OutputMap& {
-        ret.emplace(rank(url_index.first), url_index.second);
+      std::begin(urls), std::end(urls), OutputMap{},
+      [&rank](OutputMap& ret, const IndexUrlPair& pair) -> OutputMap& {
+        ret.emplace(rank(pair.first), pair.second);
         return ret;
       });
 }
@@ -308,8 +320,7 @@ int main(int argc, char* argv[]) {
 
   [](std::ifstream&& ifs, std::ofstream&& ofs) -> void {
     [](const InputRet& input, std::ostream& ostr) -> void {
-      Output(ostr,
-             GetUrlRankMap(input.url_index_map, DoPageRank(input.matrix)));
+      Output(ostr, GetUrlRankMap(input.urls, DoPageRank(input.matrix)));
     }(Input(ifs), ofs.is_open() ? ofs : std::cout);
   }(std::ifstream(argv[1]), argc >= 3 ? std::ofstream(argv[2])
                                       : std::ofstream());
