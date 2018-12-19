@@ -5,6 +5,7 @@
 #include "html_parser.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "string_helper.h"
 
