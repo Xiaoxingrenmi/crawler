@@ -5,6 +5,7 @@
 #include "html_parser.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 #include "string_helper.h"
 
@@ -120,6 +121,18 @@ void ParseAtagUrls(const char* html,
       case 10:
         if (*p == '>') {
           state = 0;
+
+          const char* first_space = strchr(url_beg, ' ');
+          if (first_space && first_space < url_end)
+              url_end = first_space;
+
+          const char* first_return = strchr(url_beg, '\r');
+          if (first_return && first_return < url_end)
+              url_end = first_return;
+
+          const char* first_newline = strchr(url_beg, '\n');
+          if (first_newline && first_newline < url_end)
+              url_end = first_newline;
 
           char* url = CopyrString(url_beg, url_end);
           if (url) {
