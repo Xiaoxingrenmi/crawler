@@ -10,6 +10,7 @@ typedef enum {
   Request_Socket_Err,     // unknown socket() errors
   Request_Out_Of_Mem,     // out of memory
   Request_Event_New_Err,  // event_new() failed
+  Request_Bad_Hostname,   // invalid host or failed in getaddrinfo()
   Request_Conn_Err,       // unknown connect() errors
   Request_Conn_Timeout,   // connect() timeout
   Request_Bad_Sock_Opt,   // invalid sockopt

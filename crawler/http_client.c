@@ -14,6 +14,8 @@
 #include <arpa/inet.h>
 // For libevent functions
 #include <event2/event.h>
+// For getaddrinfo
+#include <netdb.h>
 // For sockaddr_in
 #include <netinet/in.h>
 // For socket functions
@@ -59,31 +61,6 @@ char* ConstructSendBuffer(const char* url) {
     free((void*)host);
   if (path)
     free((void*)path);
-  return ret;
-}
-
-struct sockaddr_in ConstructSockAddr(const char* url) {
-  struct sockaddr_in ret = {0};
-  char* host = HTParse(url, NULL, PARSE_HOST);
-  uint16_t port = 80;  // TODO: parse port from url
-
-  if (host && port) {
-    ret.sin_family = AF_INET;
-    ret.sin_port = htons(port);
-
-    // check |host| type (domain name or ip address)
-    struct hostent* host_by_name = gethostbyname(host);
-    if (host_by_name && host_by_name->h_addrtype == AF_INET) {
-      // |host| is domain name
-      ret.sin_addr.s_addr = *(in_addr_t*)host_by_name->h_addr_list[0];
-    } else {
-      // |host| is ip address
-      inet_pton(ret.sin_family, host, (void*)&ret.sin_addr);
-    }
-  }
-
-  if (host)
-    free((void*)host);
   return ret;
 }
 
@@ -353,15 +330,64 @@ void DoInit(evutil_socket_t fd, short events, void* context) {
   assert(context);
   RequestState* state = (RequestState*)context;
 
-  // try connect to server
-  struct sockaddr_in sa = ConstructSockAddr(state->url);
-  if (connect(fd, (struct sockaddr*)&sa, sizeof sa) < 0) {
-    if (EVUTIL_SOCKET_ERROR() != EINPROGRESS &&
-        EVUTIL_SOCKET_ERROR() != EINTR) {
-      // Init -> Fail
-      StateToFail(fd, state, Request_Conn_Err);
-      return;
+  // parse |host| from |url|
+  char* host = HTParse(state->url, NULL, PARSE_HOST);
+  if (!host) {
+    // Init -> Fail
+    StateToFail(fd, state, Request_Bad_Hostname);
+    return;
+  }
+
+  // get |addrinfo|
+  struct addrinfo* addr_list = NULL;
+  struct addrinfo hints = {0};
+  hints.ai_flags = 0;
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_RAW;
+  hints.ai_protocol = IPPROTO_ICMP;
+  if (getaddrinfo(host, NULL, &hints, &addr_list) != 0)
+    addr_list = NULL;
+
+  free((void*)host);
+
+  if (!addr_list) {
+    // Init -> Fail
+    StateToFail(fd, state, Request_Bad_Hostname);
+    return;
+  }
+
+  // try connect to host
+  unsigned char is_connect_ok = 0;
+  for (struct addrinfo* rp = addr_list; rp; rp = rp->ai_next) {
+    char host[NI_MAXHOST];
+    getnameinfo(rp->ai_addr, rp->ai_addrlen, host, sizeof(host), NULL, 0,
+                NI_NUMERICHOST);
+
+    struct sockaddr_in sa = {0};
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons(80);
+    inet_pton(sa.sin_family, host, (void*)&sa.sin_addr);
+
+    // connect immediately
+    if (connect(fd, (struct sockaddr*)&sa, sizeof sa) >= 0) {
+      is_connect_ok = 1;
+      break;
     }
+
+    // connecting
+    if (EVUTIL_SOCKET_ERROR() == EINPROGRESS ||
+        EVUTIL_SOCKET_ERROR() == EINTR) {
+      is_connect_ok = 1;
+      break;
+    }
+  }
+
+  freeaddrinfo(addr_list);
+
+  if (!is_connect_ok) {
+    // Init -> Fail
+    StateToFail(fd, state, Request_Conn_Err);
+    return;
   }
 
   // Init -> Conn
