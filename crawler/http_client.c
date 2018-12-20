@@ -25,6 +25,8 @@
 #include "third_party/HTParse.h"
 
 #define CONN_TIMEOUT_SEC 5
+#define SEND_TIMEOUT_SEC 5
+#define RECV_TIMEOUT_SEC 5
 #define SEND_BUFFER_SIZE 512
 #define RECV_BUFFER_SIZE 64
 
@@ -255,7 +257,8 @@ void StateConnToSend(evutil_socket_t fd, RequestState* state) {
   state->n_sent = 0;
 
   // start new state
-  event_add(state->event, NULL);
+  struct timeval tv = {SEND_TIMEOUT_SEC, 0};
+  event_add(state->event, &tv);
 }
 
 void StateSendToRecv(evutil_socket_t fd, RequestState* state) {
@@ -274,7 +277,8 @@ void StateSendToRecv(evutil_socket_t fd, RequestState* state) {
   state->content_length = 0;
 
   // start new state
-  event_add(state->event, NULL);
+  struct timeval tv = {RECV_TIMEOUT_SEC, 0};
+  event_add(state->event, &tv);
 }
 
 void StateRecvToSucc(evutil_socket_t fd, RequestState* state) {
@@ -365,7 +369,7 @@ void DoInit(evutil_socket_t fd, short events, void* context) {
 
     struct sockaddr_in sa = {0};
     sa.sin_family = AF_INET;
-    sa.sin_port = htons(80);
+    sa.sin_port = htons(80);  // TODO: read port from url
     inet_pton(sa.sin_family, host, (void*)&sa.sin_addr);
 
     // connect immediately
@@ -403,7 +407,6 @@ void DoConn(evutil_socket_t fd, short events, void* context) {
     StateToFail(fd, state, Request_Conn_Timeout);
     return;
   }
-
   assert(events & EV_WRITE);
 
   // check sockopt
@@ -421,9 +424,15 @@ void DoConn(evutil_socket_t fd, short events, void* context) {
 }
 
 void DoSend(evutil_socket_t fd, short events, void* context) {
-  assert(events & EV_WRITE);
   assert(context);
   RequestState* state = (RequestState*)context;
+
+  if (events & EV_TIMEOUT) {
+    // Send -> Fail
+    StateToFail(fd, state, Request_Send_Timeout);
+    return;
+  }
+  assert(events & EV_WRITE);
 
   size_t send_upto = strlen(state->buffer);
   while (state->n_sent < send_upto) {
@@ -432,7 +441,8 @@ void DoSend(evutil_socket_t fd, short events, void* context) {
     if (result < 0) {
       // continue in next term
       if (EVUTIL_SOCKET_ERROR() == EAGAIN) {
-        event_add(state->event, NULL);
+        struct timeval tv = {SEND_TIMEOUT_SEC, 0};
+        event_add(state->event, &tv);
         return;
       }
 
@@ -454,9 +464,15 @@ void DoSend(evutil_socket_t fd, short events, void* context) {
 }
 
 void DoRecv(evutil_socket_t fd, short events, void* context) {
-  assert(events & EV_READ);
   assert(context);
   RequestState* state = (RequestState*)context;
+
+  if (events & EV_TIMEOUT) {
+    // Recv -> Fail
+    StateToFail(fd, state, Request_Recv_Timeout);
+    return;
+  }
+  assert(events & EV_READ);
 
   char buffer[RECV_BUFFER_SIZE];
   while (1) {
@@ -464,7 +480,8 @@ void DoRecv(evutil_socket_t fd, short events, void* context) {
     if (result < 0) {
       // continue in next term
       if (EVUTIL_SOCKET_ERROR() == EAGAIN) {
-        event_add(state->event, NULL);
+        struct timeval tv = {RECV_TIMEOUT_SEC, 0};
+        event_add(state->event, &tv);
         return;
       }
 

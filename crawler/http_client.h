@@ -15,7 +15,9 @@ typedef enum {
   Request_Conn_Timeout,   // connect() timeout
   Request_Bad_Sock_Opt,   // invalid sockopt
   Request_Send_Err,       // unknown send() errors
+  Request_Send_Timeout,   // send() timeout
   Request_Recv_Err,       // unknown recv() errors
+  Request_Recv_Timeout,   // recv() timeout
   Request_Succ,           // HTTP response 200
   Request_Response_Err,   // HTTP response not 200
 } RequestStatus;
