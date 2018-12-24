@@ -16,7 +16,7 @@
 #include "url_map.h"
 
 #define URL_HTTP_SCHEME "http://"
-#define HANDLED_URL_SET_SIZE (160000 * 100)
+#define HANDLED_URL_SET_SIZE (16000000 * 100)
 #define PAGE_URL_SET_SIZE (1000 * 100)
 
 void RequestCallback(const char* url,
@@ -30,6 +30,7 @@ struct PendingRequest {
 };
 
 unsigned char g_is_fd_reach_limits;
+size_t g_pending_request_count;
 TAILQ_HEAD(, PendingRequest) g_pending_request_queue;
 
 typedef struct {
@@ -93,20 +94,18 @@ void RequestCallback(const char* url,
   assert(url);
   (void)(context);
 
-  if (status == Request_Fd_Limit) {
-    // push back current request to pending list
+  // set flag |g_is_fd_reach_limits|
+  g_is_fd_reach_limits = (status == Request_Fd_Limit);
+
+  if (g_is_fd_reach_limits) {
     struct PendingRequest* pending_request =
         (struct PendingRequest*)malloc(sizeof(struct PendingRequest));
     pending_request->url = CopyString(url);
-    TAILQ_INSERT_TAIL(&g_pending_request_queue, pending_request, _entries);
 
-    // set flag |g_is_fd_reach_limits|
-    g_is_fd_reach_limits = 1;
+    TAILQ_INSERT_TAIL(&g_pending_request_queue, pending_request, _entries);
+    ++g_pending_request_count;
     return;
   }
-
-  // clear flag |g_is_fd_reach_limits|
-  g_is_fd_reach_limits = 0;
 
   if (status != Request_Succ || !html) {
     fprintf(stderr, "failed to fetch %s (%d)\n", url, status);
@@ -130,7 +129,7 @@ void YieldUrlConnectionIndexCallback(const char* url,
   assert(context);
   FILE* output_file = (FILE*)context;
 
-  fprintf(output_file, "%-3lu %s\n", index, url);
+  fprintf(output_file, "%-6lu %s\n", index, url);
 }
 
 void YieldUrlConnectionPairCallback(size_t src, size_t dst, void* context) {
@@ -139,7 +138,7 @@ void YieldUrlConnectionPairCallback(size_t src, size_t dst, void* context) {
   assert(context);
   FILE* output_file = (FILE*)context;
 
-  fprintf(output_file, "%-3lu %lu\n", src, dst);
+  fprintf(output_file, "%-6lu %lu\n", src, dst);
 }
 
 int main(int argc, char* argv[]) {
@@ -156,22 +155,33 @@ int main(int argc, char* argv[]) {
   // use |argv[1]| to start crawl tasks
   ProcessUrl(argv[1], NULL);
 
+  // record how-many pending request in previous round
+  static size_t previous_pending_request_count = 0;
+
   while (1) {
     // dispatch crawl tasks
     DispatchLibEvent();
 
-    // break if there is no pending request
-    if (TAILQ_EMPTY(&g_pending_request_queue))
+    // break if
+    // - there is no pending request
+    // - remaining pending requests are the same as in previous round
+    if (TAILQ_EMPTY(&g_pending_request_queue) ||
+        previous_pending_request_count == g_pending_request_count)
       break;
 
-    // try start pending requests if not |g_is_fd_reach_limits|
-    while (!TAILQ_EMPTY(&g_pending_request_queue)) {
-      if (!g_is_fd_reach_limits)
-        break;
+    // record |previous_pending_request_count|
+    previous_pending_request_count = g_pending_request_count;
 
+    // reset flag |g_is_fd_reach_limits|
+    g_is_fd_reach_limits = 0;
+
+    // try start pending requests if not |g_is_fd_reach_limits|
+    while (!TAILQ_EMPTY(&g_pending_request_queue) && !g_is_fd_reach_limits) {
       struct PendingRequest* request = TAILQ_FIRST(&g_pending_request_queue);
       TAILQ_REMOVE(&g_pending_request_queue, request, _entries);
+      --g_pending_request_count;
 
+      // update flag |g_is_fd_reach_limits| here
       Request(request->url, RequestCallback, NULL);
 
       free((void*)request->url);
@@ -181,9 +191,9 @@ int main(int argc, char* argv[]) {
 
   FreeLibEvent();
   FreeBloomFilter(g_handled_url_set);
-
   AssertBloomFilterNoLeak();
-  assert(TAILQ_EMPTY(&g_pending_request_queue));
+
+  // discard remaining requests in |g_pending_request_queue|
 
   // use output_file if exists
   FILE* output_file = argc >= 3 ? fopen(argv[2], "w") : stdout;
